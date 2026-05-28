@@ -56,6 +56,12 @@ bash -n "$repo_root/skills/chrome-print-pdf/scripts/print_chrome_pdf.sh"
 bash -n "$repo_root/skills/chrome-print-pdf/scripts/export_github_prs_pdf.sh"
 bash -n "$repo_root/skills/chrome-print-pdf/scripts/export_github_commits_pdf.sh"
 
+forbidden_selector="document.querySelector('a[href*=\\\"/pull/\\\"]')"
+if rg -F "$forbidden_selector" "$repo_root/skills/chrome-print-pdf/scripts/print_chrome_pdf.sh" >/dev/null; then
+  echo "print_chrome_pdf.sh contains AppleScript-breaking embedded double quotes in readiness JavaScript" >&2
+  exit 1
+fi
+
 print_plan="$("$repo_root/skills/chrome-print-pdf/scripts/print_chrome_pdf.sh" \
   --url "https://github.com/tidbcloud/tidb-operator-cse/pulls?q=is%3Apr" \
   --out-dir "$tmp/out" \
