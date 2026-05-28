@@ -36,7 +36,7 @@ pdftotext -v
 
 ## Workflow
 
-1. Determine the full export scope before printing. For GitHub commits pages, prefer `export_github_commits_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, default branch, rendered Next pages, merge output, window count, SHA validation, and writes a `*-audit.txt` file next to the merged PDF. For GitHub PR/search result pages, prefer `print_chrome_pdf.sh --auto-github-pages` when `gh` can access the repository. Otherwise identify every page URL and export every page.
+1. Determine the full export scope before printing. For GitHub commits pages, prefer `export_github_commits_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, branch, rendered Next pages, merge output, window count, SHA validation, and writes a `*-audit.txt` file next to the merged PDF. For GitHub PR/search result pages, prefer `print_chrome_pdf.sh --auto-github-pages` when `gh` can access the repository. Otherwise identify every page URL and export every page.
 2. Open the target URL in a new tab of the existing signed-in Chrome window so existing browser pages are not overwritten. Only create a new Chrome window when Chrome has no open windows. For multi-page exports, reuse that export tab for later pages.
 3. Wait for the page to load and confirm the title/URL if needed.
 4. Open print preview with `Cmd-P`. The script falls back to Chrome's `File -> Print...` menu when `Cmd-P` does not surface a print preview window.
@@ -55,7 +55,7 @@ For GitHub PR/search/commits pagination, do not assume the user-provided first U
 Preferred ways to determine page count:
 
 - If `gh` can access the repository, use `scripts/print_chrome_pdf.sh --auto-github-pages` for GitHub PR list URLs with a `q=` filter. The script queries GitHub search for `repo:owner/repo <decoded q>` and uses the result count to set `--pages` internally. GitHub PR lists normally show 25 items per page, so `ceil(count / 25)` gives the browser page range.
-- For GitHub commits pages, first resolve the default branch with `gh api repos/owner/repo --jq .default_branch`, then build `https://github.com/owner/repo/commits/<branch>/?author=<login>`. Use `--auto-github-next-pages`; GitHub commits pages use rendered `Next` cursor URLs such as `after=<sha>+<n>`, not stable `page=N` URLs.
+- For GitHub commits pages, preserve a branch already present in a URL such as `https://github.com/owner/repo/commits/sharding`; only resolve the default branch with `gh api repos/owner/repo --jq .default_branch` when neither `--branch` nor the input URL specifies a branch. Use `--auto-github-next-pages`; GitHub commits pages use rendered `Next` cursor URLs such as `after=<sha>+<n>`, not stable `page=N` URLs.
 - To estimate scope for commits-by-author exports, use `gh api 'repos/owner/repo/commits?sha=<branch>&author=<login>&per_page=100' --paginate --jq '.[].sha' | wc -l`. The rendered page count should still come from Chrome's `Next` links.
 - If the page is public, inspect the rendered or fetched pagination controls and use the last page number.
 - If unauthenticated `curl` returns 404 or incomplete content, treat the page as private/session-dependent and use Chrome login state or `gh`; do not rely on headless browser output or public fetches for the final scope.
@@ -117,6 +117,8 @@ GitHub commits-by-author export:
 ```
 
 Use `--author USER`, `--branch BRANCH`, or `--name NAME` only when overriding the current GitHub login, repository default branch, or output basename. Use `--resume` after an interrupted export to reuse valid per-page PDFs.
+
+When the `--repo` value is a commits URL, `export_github_commits_pdf.sh` preserves `author=` from the URL and the `/commits/<branch>` path unless explicit `--author` or `--branch` flags override them. Branch-specific inputs default to names like `repo-branch-commits-user` so they do not overwrite default-branch exports.
 
 Lower-level GitHub commits pagination:
 

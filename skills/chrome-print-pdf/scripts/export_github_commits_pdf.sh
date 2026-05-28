@@ -9,6 +9,7 @@ Usage:
 Examples:
   export_github_commits_pdf.sh --repo tidbcloud/ffs --out-dir /tmp/exports
   export_github_commits_pdf.sh --repo https://github.com/ngaut/rfs --out-dir /tmp/exports --author hslam
+  export_github_commits_pdf.sh --repo https://github.com/pingcap/badger/commits/sharding --out-dir /tmp/exports
 EOF
 }
 
@@ -48,15 +49,43 @@ command -v rg >/dev/null
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 print_script="$script_dir/print_chrome_pdf.sh"
 
-normalize_repo() {
+github_path() {
   local raw="$1"
   raw="${raw#https://github.com/}"
   raw="${raw#http://github.com/}"
   raw="${raw#git@github.com:}"
-  raw="${raw%.git}"
   raw="${raw%%\?*}"
   raw="${raw%%#*}"
   raw="${raw%/}"
+  printf '%s\n' "$raw"
+}
+
+url_decode() {
+  local encoded="${1//+/ }"
+  printf '%b' "${encoded//%/\\x}"
+}
+
+query_param() {
+  local raw_url="$1"
+  local key="$2"
+  local query="${raw_url#*\?}"
+  [[ "$query" != "$raw_url" ]] || return 1
+  query="${query%%#*}"
+  local part=""
+  IFS='&' read -ra parts <<< "$query"
+  for part in "${parts[@]}"; do
+    if [[ "$part" == "$key="* ]]; then
+      url_decode "${part#*=}"
+      return
+    fi
+  done
+  return 1
+}
+
+normalize_repo() {
+  local raw
+  raw="$(github_path "$1")"
+  raw="${raw%.git}"
   local owner=""
   local repo=""
   IFS=/ read -r owner repo _ <<< "$raw"
@@ -67,19 +96,63 @@ normalize_repo() {
   printf '%s/%s\n' "$owner" "$repo"
 }
 
+commits_branch_from_url() {
+  local raw
+  raw="$(github_path "$1")"
+  raw="${raw%.git}"
+  local owner=""
+  local repo=""
+  local section=""
+  local branch_path=""
+  IFS=/ read -r owner repo section branch_path <<< "$raw"
+  if [[ "$section" != "commits" || -z "$branch_path" ]]; then
+    return 1
+  fi
+  branch_path="${raw#"$owner/$repo/commits/"}"
+  branch_path="${branch_path%/}"
+  [[ -n "$branch_path" ]] || return 1
+  url_decode "$branch_path"
+}
+
+filename_part() {
+  sed -E 's#[^A-Za-z0-9._-]+#-#g; s#-+#-#g; s#^-##; s#-$##' <<< "$1"
+}
+
 repo_full_name="$(normalize_repo "$repo_input")"
 repo_name="${repo_full_name##*/}"
+author_from_input="$(query_param "$repo_input" author || true)"
+branch_from_input="$(commits_branch_from_url "$repo_input" || true)"
 
 if [[ -z "$author" ]]; then
-  author="$(gh api user --jq .login)"
+  if [[ -n "$author_from_input" ]]; then
+    author="$author_from_input"
+    author_source="input URL author query"
+  else
+    author="$(gh api user --jq .login)"
+    author_source="current GitHub login"
+  fi
+else
+  author_source="--author"
 fi
 
 if [[ -z "$branch" ]]; then
-  branch="$(gh api "repos/$repo_full_name" --jq .default_branch)"
+  if [[ -n "$branch_from_input" ]]; then
+    branch="$branch_from_input"
+    branch_source="input commits URL"
+  else
+    branch="$(gh api "repos/$repo_full_name" --jq .default_branch)"
+    branch_source="repository default branch"
+  fi
+else
+  branch_source="--branch"
 fi
 
 if [[ -z "$name" ]]; then
-  name="$repo_name-commits-$author"
+  if [[ "$branch_source" == "--branch" || "$branch_source" == "input commits URL" ]]; then
+    name="$repo_name-$(filename_part "$branch")-commits-$author"
+  else
+    name="$repo_name-commits-$author"
+  fi
 fi
 
 commit_count="$(
@@ -127,7 +200,9 @@ after_windows="$(osascript -e 'tell application "Google Chrome" to return count 
 echo "==> GitHub commits export audit"
 echo "Repository: $repo_full_name"
 echo "Branch: $branch"
+echo "Branch source: $branch_source"
 echo "Author: $author"
+echo "Author source: $author_source"
 echo "Commit count: $commit_count"
 echo "Chrome windows before: $before_windows"
 echo "Chrome windows after: $after_windows"
@@ -172,7 +247,9 @@ fi
   echo "Generated at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
   echo "Repository: $repo_full_name"
   echo "Branch: $branch"
+  echo "Branch source: $branch_source"
   echo "Author: $author"
+  echo "Author source: $author_source"
   echo "Commit count: $commit_count"
   echo "Target URL: $target_url"
   echo "Output directory: $repo_out_dir"
