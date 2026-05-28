@@ -11,6 +11,8 @@ Use the signed-in Google Chrome GUI when the page depends on the user's browser 
 
 Prefer `scripts/print_chrome_pdf.sh` for repeat work. Read `references/macos-chrome-print.md` when the GUI gets stuck or coordinates need adjustment.
 
+Before starting a Chrome GUI export, briefly tell the user that Chrome may be brought to the foreground while print preview and Save dialogs are automated.
+
 ## Prerequisites
 
 Require:
@@ -42,7 +44,8 @@ pdftotext -v
 6. Press the blue Save button. The script reads the print window bounds, clicks the lower-right Save location with several retries, then tries Accessibility by label, and finally accepts `--save-click X,Y` as a manual override.
 7. In the macOS Save dialog, type the file name, use `Cmd-Shift-G` to jump to the destination directory, then click the dialog's Save button through Accessibility.
 8. If the GUI automation misses, take a screenshot before guessing and rerun with `--save-click X,Y` only as a last-mile override.
-9. Validate every saved page and the merged PDF with `pdfinfo` and `pdftotext`.
+9. For long exports or retries, prefer `--resume` so existing PDFs that pass `pdfinfo` are reused and only missing or invalid pages are printed again.
+10. Validate every saved page and the merged PDF with `pdfinfo` and `pdftotext`.
 
 ## GitHub Pagination
 
@@ -56,9 +59,16 @@ Preferred ways to determine page count:
 
 When exporting a GitHub list, report the result count or page range you used, such as `0 Open 63 Closed` and `pages 1-3`.
 
+Final responses for GitHub list exports must include the result count, exported page range, merged PDF path, merged PDF page count, and output directory.
+
 ## Output Layout
 
 When exporting several PDFs for one GitHub repository, save them under a repository-named folder. Prefer `--repo-subdir` for GitHub URLs, or `--subdir NAME` when the URL is not a standard GitHub repo URL.
+
+Use stable names that include the repository and a short filter description. Prefer:
+
+- `repo-filter-short-page-N.pdf` for per-page files
+- `repo-filter-short-all-pages.pdf` for merged files
 
 Example output:
 
@@ -93,6 +103,19 @@ GitHub search pagination:
   --repo-subdir
 ```
 
+Resume an interrupted multi-page export:
+
+```bash
+~/.codex/skills/chrome-print-pdf/scripts/print_chrome_pdf.sh \
+  --url "https://github.com/owner/repo/pulls?q=is%3Apr+is%3Aclosed+author%3Auser" \
+  --out-dir "$HOME/Documents/dev-pdf" \
+  --name "repo-closed-prs-user" \
+  --pages 1-10 \
+  --merge \
+  --repo-subdir \
+  --resume
+```
+
 Find the page range first when `gh` is available:
 
 ```bash
@@ -115,6 +138,8 @@ Manual print-preview Save override:
   --save-click 1620,942
 ```
 
+If only one page failed, rerun just that page with `--pages N` and the same `--name`, `--out-dir`, and subdirectory options, then rerun the full page range with `--merge --resume` to rebuild the merged PDF from valid per-page PDFs.
+
 Manual subdirectory:
 
 ```bash
@@ -136,6 +161,8 @@ pdftotext "$file" - | rg -m 8 'expected text|repo name|query|result count'
 
 For GitHub PR lists, verify the repository name, query text, and expected count such as `0 Open 63 Closed`. Also verify that the per-page PDFs are not all the same page by checking the saved page URLs or distinct text from each page when possible.
 
+For merged GitHub list PDFs, verify more than the page count: sample text from the first source page and the last source page, such as representative PR numbers, so the merged file is known to contain the full range.
+
 When the script can identify a GitHub PR list, it prints a validation block after export:
 
 - repository and decoded query
@@ -145,9 +172,21 @@ When the script can identify a GitHub PR list, it prints a validation block afte
 
 Merged PDFs created by `pdfunite` may not preserve `Title`, `Creator`, or `CreationDate`. That is acceptable if `pdfinfo` reports the expected page count and `pdftotext` verifies the repository, query, and result count.
 
+## Final Response
+
+Keep the final response concise but auditable. Include:
+
+- output directory
+- merged PDF path
+- per-page PDF location or count
+- GitHub result count and page range when applicable
+- merged PDF page count
+- the validation signals used, including repository/query text and first/last page distinctness when applicable
+
 ## Notes
 
 - Chrome UI cannot make a truly infinite one-page PDF. It can only reduce pagination by paper size, margins, and scale. For a real single long page, create a local HTML or use DevTools/Playwright with custom page dimensions.
 - Do not reuse existing PDFs when the user is teaching or requesting the generation workflow. Generate from the current Chrome page and validate the new file.
+- `--resume` is for interrupted or long exports. Do not use it when the user explicitly wants a fresh export unless they approve reusing valid existing PDFs.
 - Do not name a shell variable `path` in zsh scripts; it can shadow `PATH` and make commands like `osascript` disappear.
-- If Chrome print preview opens but the Save button click does not show the macOS save dialog, wait for the script retries first; clicking the Save location multiple times is acceptable. If it still fails, take a screenshot, then rerun with `--save-click X,Y` using the observed Save button center.
+- If Chrome print preview opens but the Save button click does not show the macOS save dialog, wait for the script retries first; clicking the Save location multiple times is acceptable. If it still fails, check whether an overwrite or save dialog is already waiting, take a screenshot, then rerun with `--save-click X,Y` using the observed Save button center.

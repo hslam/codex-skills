@@ -4,11 +4,12 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M | --auto-github-pages] [--merge] [--repo-subdir | --subdir NAME] [--save-click X,Y]
+  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M | --auto-github-pages] [--merge] [--repo-subdir | --subdir NAME] [--resume] [--save-click X,Y]
 
 Examples:
   print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs.pdf
   print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs --auto-github-pages --merge --repo-subdir
+  print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs --pages 1-10 --merge --repo-subdir --resume
 EOF
 }
 
@@ -20,6 +21,7 @@ merge=0
 repo_subdir=0
 subdir=""
 save_click=""
+resume=0
 auto_github_pages=0
 github_result_count=""
 github_query=""
@@ -35,6 +37,7 @@ while [[ $# -gt 0 ]]; do
     --merge) merge=1; shift ;;
     --repo-subdir) repo_subdir=1; shift ;;
     --subdir) subdir="$2"; shift 2 ;;
+    --resume) resume=1; shift ;;
     --save-click) save_click="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
@@ -420,6 +423,12 @@ save_one() {
   fi
 
   local outfile="$out_dir/$file"
+  if [[ "$resume" -eq 1 && -f "$outfile" ]] && pdfinfo "$outfile" >/dev/null 2>&1; then
+    echo "==> Reusing existing valid PDF: $outfile"
+    pdfinfo "$outfile" | grep -E '^(Title|Pages|Creator|Producer|CreationDate)' || true
+    return
+  fi
+
   rm -f "$outfile"
 
   echo "==> Opening $target_url"
@@ -506,7 +515,38 @@ validate_github_pr_exports() {
     pdftotext "$merged" - | grep -F -m 3 "$github_repo_full_name" || true
     pdftotext "$merged" - | grep -F -m 3 "$github_query" || true
     pdftotext "$merged" - | grep -E -m 10 '[0-9]+ Open [0-9]+ Closed|#[0-9]+ by ' || true
+    if [[ "${#generated[@]}" -gt 1 ]]; then
+      echo "==> Merged PDF first/last page samples"
+      local first_sample=""
+      local last_sample=""
+      local last_index=$((${#generated[@]} - 1))
+      first_sample="$(pdftotext "${generated[0]}" - | grep -E -m 3 '#[0-9]+ by ' | tr '\n' ' ' || true)"
+      last_sample="$(pdftotext "${generated[$last_index]}" - | grep -E -m 3 '#[0-9]+ by ' | tr '\n' ' ' || true)"
+      printf 'first source page: %s\n' "$first_sample"
+      printf 'last source page: %s\n' "$last_sample"
+    fi
   fi
 }
 
 validate_github_pr_exports
+
+echo "==> Export summary"
+echo "Output directory: $out_dir"
+if [[ -n "$github_repo_full_name" ]]; then
+  echo "Repository: $github_repo_full_name"
+fi
+if [[ -n "$github_query" ]]; then
+  echo "Query: $github_query"
+fi
+if [[ -n "$github_result_count" ]]; then
+  echo "Result count: $github_result_count"
+fi
+if [[ -n "$pages" ]]; then
+  echo "Page range: $pages"
+fi
+echo "Per-page PDFs:"
+printf '  %s\n' "${generated[@]}"
+if [[ "$merge" -eq 1 && -n "${merged:-}" ]]; then
+  echo "Merged PDF: $merged"
+  pdfinfo "$merged" | grep -E '^(Pages)' || true
+fi
