@@ -9,7 +9,7 @@ description: Export logged-in Google Chrome pages to PDF with Chrome's native pr
 
 Use the signed-in Google Chrome GUI when the page depends on the user's browser session. Do not use headless Chrome for private GitHub pages unless the user explicitly accepts the risk: it may not reuse Chrome's login state and can print a 404 page.
 
-Prefer `scripts/export_github_commits_pdf.sh` for GitHub commits-by-author exports. Use `scripts/print_chrome_pdf.sh` for other logged-in pages or lower-level retry work. Read `references/macos-chrome-print.md` when the GUI gets stuck or coordinates need adjustment.
+Prefer `scripts/export_github_commits_pdf.sh` for GitHub commits-by-author exports and `scripts/export_github_prs_pdf.sh` for GitHub PR-by-author exports from a repository URL. Use `scripts/print_chrome_pdf.sh` for other logged-in pages or lower-level retry work. Read `references/macos-chrome-print.md` when the GUI gets stuck or coordinates need adjustment.
 
 Before starting a Chrome GUI export, briefly tell the user that Chrome may be brought to the foreground while print preview and Save dialogs are automated.
 
@@ -36,7 +36,7 @@ pdftotext -v
 
 ## Workflow
 
-1. Determine the full export scope before printing. For GitHub commits pages, prefer `export_github_commits_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, branch, rendered Next pages, merge output, window count, SHA validation, and writes a `*-audit.txt` file next to the merged PDF. For GitHub PR/search result pages, prefer `print_chrome_pdf.sh --auto-github-pages` when `gh` can access the repository. Otherwise identify every page URL and export every page.
+1. Determine the full export scope before printing. For GitHub commits pages, prefer `export_github_commits_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, branch, rendered Next pages, merge output, window count, SHA validation, and writes a `*-audit.txt` file next to the merged PDF. For closed PR pages by author from a repository URL, prefer `export_github_prs_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, builds the `pulls?page=1&q=is%3Apr+is%3Aclosed+author%3AUSER` URL, exports all inferred pages, merges, and writes a `*-audit.txt` file. For other GitHub PR/search result pages, prefer `print_chrome_pdf.sh --auto-github-pages` when `gh` can access the repository. Otherwise identify every page URL and export every page.
 2. Open the target URL in a new tab of the existing signed-in Chrome window so existing browser pages are not overwritten. Only create a new Chrome window when Chrome has no open windows. For multi-page exports, reuse that export tab for later pages.
 3. Wait for the page to load and confirm the title/URL if needed.
 4. Open print preview with `Cmd-P`. The script falls back to Chrome's `File -> Print...` menu when `Cmd-P` does not surface a print preview window.
@@ -107,6 +107,16 @@ GitHub search pagination:
   --merge \
   --repo-subdir
 ```
+
+GitHub closed PRs by author from a repository URL:
+
+```bash
+~/.codex/skills/chrome-print-pdf/scripts/export_github_prs_pdf.sh \
+  --repo "owner/repo" \
+  --out-dir "/path/to/output"
+```
+
+Use `--author USER`, `--state open|closed|all`, or `--name NAME` only when overriding the current GitHub login, default `closed` PR state, or output basename. Use `--print-url` when you only need to verify the generated PR URL and page range.
 
 GitHub commits-by-author export:
 
@@ -192,7 +202,7 @@ pdfinfo "$file" | rg '^(Title|Pages|Creator|Producer|CreationDate)' || true
 pdftotext "$file" - | rg -m 8 'expected text|repo name|query|result count'
 ```
 
-For GitHub PR lists, verify the repository name, query text, and expected count such as `0 Open 63 Closed`. Also verify that the per-page PDFs are not all the same page by checking the saved page URLs or distinct text from each page when possible.
+For GitHub PR lists, verify the repository name, query text, and expected count such as `0 Open 63 Closed`. Also verify that the per-page PDFs are not all the same page by checking the saved page URLs or distinct text from each page when possible. When using `export_github_prs_pdf.sh`, use its terminal audit block and saved `*-audit.txt` file as the primary validation: repository, author, state, query, result count, page range, Chrome window count before/after, merged PDF metadata, and per-page PDF count.
 
 For GitHub commits exports, verify the API count, resolved branch, author login, rendered page count, and first/last page samples. Compare API page boundaries when useful, for example first source page `ae13622 ... 10dd66a` and last source page `a8fa6b3 ... bcc088c`.
 
@@ -218,7 +228,7 @@ Keep the final response concise but auditable. Include:
 
 - output directory
 - merged PDF path
-- audit file path for GitHub commits exports
+- audit file path for GitHub commits or PR helper exports
 - per-page PDF location or count
 - GitHub result count and page range when applicable
 - merged PDF page count

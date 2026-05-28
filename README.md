@@ -8,6 +8,8 @@ Personal Codex skills collection.
 | --- | --- |
 | `chrome-print-pdf` | Export logged-in Google Chrome pages, especially private GitHub PR/search/commits pages, to PDF with Chrome print preview. |
 
+For GitHub PR-by-author exports, prefer `skills/chrome-print-pdf/scripts/export_github_prs_pdf.sh`; it resolves the current GitHub author from a repository URL, builds the closed PR search URL, exports every inferred page, merges PDFs, and saves an audit next to the merged PDF.
+
 For GitHub commits-by-author exports, prefer `skills/chrome-print-pdf/scripts/export_github_commits_pdf.sh`; it resolves the branch and author from explicit flags, commits/tree URLs, or the current GitHub context, exports rendered Next pages, merges PDFs, and saves a short SHA coverage audit next to the merged PDF.
 
 ## Layout
