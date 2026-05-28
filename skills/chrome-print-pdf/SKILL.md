@@ -37,7 +37,7 @@ pdftotext -v
 ## Workflow
 
 1. Determine the full export scope before printing. For GitHub PR/search result pages, prefer `--auto-github-pages` when `gh` can access the repository; otherwise identify the number of result pages and export every page.
-2. Open the target URL in the user's signed-in Google Chrome.
+2. Open the target URL in a new tab in the user's signed-in Google Chrome so existing browser pages are not overwritten. For multi-page exports, reuse that export tab for later pages.
 3. Wait for the page to load and confirm the title/URL if needed.
 4. Open print preview with `Cmd-P`.
 5. Use Chrome print preview settings as requested. For normal GitHub lists, keep `Destination: Save as PDF`. To reduce pagination: open More settings, set Margins to None, lower Scale, use a larger Paper size, and turn off Headers and footers.
@@ -192,7 +192,7 @@ Keep the final response concise but auditable. Include:
 ## Notes
 
 - Chrome UI cannot make a truly infinite one-page PDF. It can only reduce pagination by paper size, margins, and scale. For a real single long page, create a local HTML or use DevTools/Playwright with custom page dimensions.
-- The script creates a Chrome window if none exists, waits for `document.readyState` before printing, and waits for the print preview window instead of relying only on fixed sleeps.
+- The script creates a Chrome window if none exists, opens the first target URL in a new export tab instead of overwriting the current tab, waits for `document.readyState` before printing, and waits for the print preview window instead of relying only on fixed sleeps.
 - Do not reuse existing PDFs when the user is teaching or requesting the generation workflow. Generate from the current Chrome page and validate the new file.
 - `--resume` is for interrupted or long exports. Do not use it when the user explicitly wants a fresh export unless they approve reusing valid existing PDFs.
 - Do not name a shell variable `path` in zsh scripts; it can shadow `PATH` and make commands like `osascript` disappear.

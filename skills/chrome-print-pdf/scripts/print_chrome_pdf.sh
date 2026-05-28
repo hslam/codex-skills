@@ -26,6 +26,8 @@ auto_github_pages=0
 github_result_count=""
 github_query=""
 github_repo_full_name=""
+export_chrome_window_id=""
+export_chrome_tab_id=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -449,13 +451,81 @@ OSA
   click_macos_dialog_button "Replace" || true
 }
 
-ensure_chrome_window() {
-  osascript <<'OSA'
+open_chrome_export_tab() {
+  local target_url="$1"
+  local escaped_target_url=""
+  local ids=""
+  escaped_target_url="$(applescript_escape "$target_url")"
+
+  if [[ -z "$export_chrome_window_id" || -z "$export_chrome_tab_id" ]]; then
+    ids="$(osascript <<OSA
 tell application "Google Chrome"
   activate
-  if (count of windows) is 0 then make new window
+  if (count of windows) is 0 then
+    make new window
+    set URL of active tab of front window to "$escaped_target_url"
+  else
+    tell front window
+      make new tab at end of tabs with properties {URL:"$escaped_target_url"}
+      set active tab index to (count of tabs)
+    end tell
+  end if
+  set windowId to id of front window
+  set tabId to id of active tab of front window
+  return (windowId as text) & "," & (tabId as text)
 end tell
 OSA
+)"
+  else
+    ids="$(osascript <<OSA
+tell application "Google Chrome"
+  activate
+  set targetWindowId to $export_chrome_window_id
+  set targetTabId to $export_chrome_tab_id
+  set targetWindow to missing value
+
+  repeat with candidateWindow in windows
+    if id of candidateWindow is targetWindowId then
+      set targetWindow to candidateWindow
+      exit repeat
+    end if
+  end repeat
+
+  if targetWindow is missing value then
+    make new window
+    set URL of active tab of front window to "$escaped_target_url"
+  else
+    set targetIndex to 0
+    set i to 1
+    repeat with candidateTab in tabs of targetWindow
+      if id of candidateTab is targetTabId then
+        set targetIndex to i
+        exit repeat
+      end if
+      set i to i + 1
+    end repeat
+
+    if targetIndex is 0 then
+      tell targetWindow
+        make new tab at end of tabs with properties {URL:"$escaped_target_url"}
+        set active tab index to (count of tabs)
+      end tell
+    else
+      set URL of tab targetIndex of targetWindow to "$escaped_target_url"
+      set active tab index of targetWindow to targetIndex
+    end if
+    set index of targetWindow to 1
+  end if
+
+  set windowId to id of front window
+  set tabId to id of active tab of front window
+  return (windowId as text) & "," & (tabId as text)
+end tell
+OSA
+)"
+  fi
+
+  IFS=, read -r export_chrome_window_id export_chrome_tab_id <<< "$ids"
 }
 
 wait_for_chrome_page_load() {
@@ -527,11 +597,7 @@ save_one() {
   rm -f "$outfile"
 
   echo "==> Opening $target_url"
-  ensure_chrome_window
-  local escaped_target_url=""
-  escaped_target_url="$(applescript_escape "$target_url")"
-  osascript -e 'tell application "Google Chrome" to activate' \
-    -e "tell application \"Google Chrome\" to set URL of active tab of front window to \"$escaped_target_url\""
+  open_chrome_export_tab "$target_url"
   wait_for_chrome_page_load "$target_url" || return 1
 
   echo "==> Opening print preview"
