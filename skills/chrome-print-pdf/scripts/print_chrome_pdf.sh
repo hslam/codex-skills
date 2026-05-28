@@ -4,11 +4,12 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M | --auto-github-pages] [--merge] [--repo-subdir | --subdir NAME] [--resume] [--save-click X,Y]
+  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M | --auto-github-pages | --auto-github-next-pages] [--merge] [--repo-subdir | --subdir NAME] [--resume] [--save-click X,Y]
 
 Examples:
   print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "/path/to/output" --name repo-prs.pdf
   print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "/path/to/output" --name repo-prs --auto-github-pages --merge --repo-subdir
+  print_chrome_pdf.sh --url "https://github.com/owner/repo/commits/main?author=user" --out-dir "/path/to/output" --name repo-commits-user --auto-github-next-pages --merge --repo-subdir
   print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "/path/to/output" --name repo-prs --pages 1-10 --merge --repo-subdir --resume
 EOF
 }
@@ -23,11 +24,14 @@ subdir=""
 save_click=""
 resume=0
 auto_github_pages=0
+auto_github_next_pages=0
+auto_next_page_limit=200
 github_result_count=""
 github_query=""
 github_repo_full_name=""
 export_chrome_window_id=""
 export_chrome_tab_id=""
+auto_urls=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -36,6 +40,8 @@ while [[ $# -gt 0 ]]; do
     --name) name="$2"; shift 2 ;;
     --pages) pages="$2"; shift 2 ;;
     --auto-github-pages) auto_github_pages=1; shift ;;
+    --auto-github-next-pages) auto_github_next_pages=1; shift ;;
+    --auto-next-page-limit) auto_next_page_limit="$2"; shift 2 ;;
     --merge) merge=1; shift ;;
     --repo-subdir) repo_subdir=1; shift ;;
     --subdir) subdir="$2"; shift 2 ;;
@@ -60,6 +66,11 @@ command -v pdftotext >/dev/null
 
 if [[ -n "$save_click" && ! "$save_click" =~ ^-?[0-9]+,-?[0-9]+$ ]]; then
   echo "--save-click must be X,Y." >&2
+  exit 2
+fi
+
+if [[ ! "$auto_next_page_limit" =~ ^[0-9]+$ || "$auto_next_page_limit" -lt 1 ]]; then
+  echo "--auto-next-page-limit must be a positive integer." >&2
   exit 2
 fi
 
@@ -146,11 +157,16 @@ infer_github_pages() {
   echo "==> Inferred GitHub page range: $pages"
 }
 
+page_source_count=0
+[[ -n "$pages" ]] && page_source_count=$((page_source_count + 1))
+[[ "$auto_github_pages" -eq 1 ]] && page_source_count=$((page_source_count + 1))
+[[ "$auto_github_next_pages" -eq 1 ]] && page_source_count=$((page_source_count + 1))
+if [[ "$page_source_count" -gt 1 ]]; then
+  echo "Use only one of --pages, --auto-github-pages, or --auto-github-next-pages." >&2
+  exit 2
+fi
+
 if [[ "$auto_github_pages" -eq 1 ]]; then
-  if [[ -n "$pages" ]]; then
-    echo "Use only one of --pages or --auto-github-pages." >&2
-    exit 2
-  fi
   infer_github_pages
 fi
 
@@ -504,17 +520,21 @@ open_chrome_export_tab() {
     ids="$(osascript <<OSA
 tell application "Google Chrome"
   activate
+  set targetWindow to missing value
   if (count of windows) is 0 then
     make new window
+    set targetWindow to front window
     set URL of active tab of front window to "$escaped_target_url"
   else
-    tell front window
+    set targetWindow to front window
+    tell targetWindow
       make new tab at end of tabs with properties {URL:"$escaped_target_url"}
       set active tab index to (count of tabs)
     end tell
   end if
-  set windowId to id of front window
-  set tabId to id of active tab of front window
+  set index of targetWindow to 1
+  set windowId to id of targetWindow
+  set tabId to id of active tab of targetWindow
   return (windowId as text) & "," & (tabId as text)
 end tell
 OSA
@@ -523,12 +543,12 @@ OSA
     ids="$(osascript <<OSA
 tell application "Google Chrome"
   activate
-  set targetWindowId to $export_chrome_window_id
-  set targetTabId to $export_chrome_tab_id
+  set targetWindowId to "$export_chrome_window_id"
+  set targetTabId to "$export_chrome_tab_id"
   set targetWindow to missing value
 
   repeat with candidateWindow in windows
-    if id of candidateWindow is targetWindowId then
+    if (id of candidateWindow as text) is targetWindowId then
       set targetWindow to candidateWindow
       exit repeat
     end if
@@ -536,12 +556,13 @@ tell application "Google Chrome"
 
   if targetWindow is missing value then
     make new window
+    set targetWindow to front window
     set URL of active tab of front window to "$escaped_target_url"
   else
     set targetIndex to 0
     set i to 1
     repeat with candidateTab in tabs of targetWindow
-      if id of candidateTab is targetTabId then
+      if (id of candidateTab as text) is targetTabId then
         set targetIndex to i
         exit repeat
       end if
@@ -557,11 +578,11 @@ tell application "Google Chrome"
       set URL of tab targetIndex of targetWindow to "$escaped_target_url"
       set active tab index of targetWindow to targetIndex
     end if
-    set index of targetWindow to 1
   end if
 
-  set windowId to id of front window
-  set tabId to id of active tab of front window
+  set index of targetWindow to 1
+  set windowId to id of targetWindow
+  set tabId to id of active tab of targetWindow
   return (windowId as text) & "," & (tabId as text)
 end tell
 OSA
@@ -569,6 +590,41 @@ OSA
   fi
 
   IFS=, read -r export_chrome_window_id export_chrome_tab_id <<< "$ids"
+}
+
+chrome_window_ids_csv() {
+  osascript <<'OSA'
+tell application "Google Chrome"
+  set windowIds to ","
+  repeat with candidateWindow in windows
+    set windowIds to windowIds & (id of candidateWindow as text) & ","
+  end repeat
+  return windowIds
+end tell
+OSA
+}
+
+close_new_chrome_windows() {
+  local before_ids="$1"
+  local escaped_before_ids=""
+  escaped_before_ids="$(applescript_escape "$before_ids")"
+
+  osascript <<OSA >/dev/null 2>&1
+on csvContains(csvText, candidateId)
+  return csvText contains ("," & candidateId & ",")
+end csvContains
+
+tell application "Google Chrome"
+  set keepWindowId to "$export_chrome_window_id"
+  repeat with i from (count of windows) to 1 by -1
+    set candidateWindow to window i
+    set candidateId to id of candidateWindow as text
+    if candidateId is not keepWindowId and not my csvContains("$escaped_before_ids", candidateId) then
+      close candidateWindow
+    end if
+  end repeat
+end tell
+OSA
 }
 
 wait_for_chrome_page_load() {
@@ -579,10 +635,24 @@ wait_for_chrome_page_load() {
   for _ in {1..80}; do
     if osascript <<OSA >/dev/null 2>&1
 tell application "Google Chrome"
-  if (count of windows) is 0 then error "No Chrome window"
-  set tabUrl to URL of active tab of front window as text
+  set targetWindowId to "$export_chrome_window_id"
+  set targetTabId to "$export_chrome_tab_id"
+  set targetTab to missing value
+  repeat with candidateWindow in windows
+    if (id of candidateWindow as text) is targetWindowId then
+      repeat with candidateTab in tabs of candidateWindow
+        if (id of candidateTab as text) is targetTabId then
+          set targetTab to candidateTab
+          exit repeat
+        end if
+      end repeat
+      exit repeat
+    end if
+  end repeat
+  if targetTab is missing value then error "Export tab is not available"
+  set tabUrl to URL of targetTab as text
   if tabUrl does not contain "$escaped_url" and "$escaped_url" does not contain tabUrl then error "URL has not settled"
-  set readyState to execute active tab of front window javascript "document.readyState"
+  set readyState to execute targetTab javascript "document.readyState"
   if readyState is not "complete" then error "Page is not complete"
 end tell
 OSA
@@ -595,6 +665,84 @@ OSA
 
   echo "Timed out waiting for Chrome page load: $expected_url" >&2
   return 1
+}
+
+chrome_next_page_href() {
+  osascript <<OSA
+tell application "Google Chrome"
+  set targetWindowId to "$export_chrome_window_id"
+  set targetTabId to "$export_chrome_tab_id"
+  set targetTab to missing value
+  repeat with candidateWindow in windows
+    if (id of candidateWindow as text) is targetWindowId then
+      repeat with candidateTab in tabs of candidateWindow
+        if (id of candidateTab as text) is targetTabId then
+          set targetTab to candidateTab
+          exit repeat
+        end if
+      end repeat
+      exit repeat
+    end if
+  end repeat
+  if targetTab is missing value then return ""
+  set js to "(() => { const norm = value => (value || '').replace(/\\\\s+/g, ' ').trim(); const anchors = [...document.querySelectorAll('a')]; for (const a of anchors) { const text = norm(a.textContent); const aria = norm(a.getAttribute('aria-label')); const rel = norm(a.getAttribute('rel')).toLowerCase(); if ((text === 'Next' || aria === 'Next' || rel === 'next') && a.href) return a.href; } return ''; })()"
+  return execute targetTab javascript js
+end tell
+OSA
+}
+
+wait_for_chrome_next_page_href() {
+  local next_url=""
+  for _ in {1..20}; do
+    next_url="$(chrome_next_page_href | tr -d '\r')"
+    if [[ -n "$next_url" ]]; then
+      printf '%s\n' "$next_url"
+      return
+    fi
+    sleep 0.25
+  done
+  printf '\n'
+}
+
+url_was_collected() {
+  local candidate="$1"
+  local existing=""
+  for existing in "${auto_urls[@]}"; do
+    [[ "$existing" == "$candidate" ]] && return 0
+  done
+  return 1
+}
+
+collect_rendered_next_page_urls() {
+  local current_url="$url"
+  local next_url=""
+
+  while true; do
+    auto_urls+=("$current_url")
+    echo "==> Collected rendered page ${#auto_urls[@]}: $current_url"
+
+    if [[ "${#auto_urls[@]}" -ge "$auto_next_page_limit" ]]; then
+      echo "Reached --auto-next-page-limit=$auto_next_page_limit before Next ended." >&2
+      exit 1
+    fi
+
+    open_chrome_export_tab "$current_url"
+    wait_for_chrome_page_load "$current_url" || exit 1
+    next_url="$(wait_for_chrome_next_page_href)"
+
+    if [[ -z "$next_url" ]]; then
+      break
+    fi
+    if url_was_collected "$next_url"; then
+      echo "Stopping at duplicate rendered Next URL: $next_url" >&2
+      break
+    fi
+
+    current_url="$next_url"
+  done
+
+  pages="1-${#auto_urls[@]}"
+  echo "==> Collected rendered Next page range: $pages"
 }
 
 print_rerun_hint() {
@@ -618,9 +766,14 @@ save_one() {
   local page="$1"
   local target_url="$url"
   local file="$name"
+  local before_print_window_ids=""
 
   if [[ "$page" != "single" ]]; then
-    target_url="$(append_page_param "$url" "$page")"
+    if [[ "$auto_github_next_pages" -eq 1 ]]; then
+      target_url="${auto_urls[$((page - 1))]}"
+    else
+      target_url="$(append_page_param "$url" "$page")"
+    fi
     if [[ "$name" == *.pdf ]]; then
       file="${name%.pdf}-page-$page.pdf"
     else
@@ -644,6 +797,7 @@ save_one() {
   wait_for_chrome_page_load "$target_url" || return 1
 
   echo "==> Opening print preview"
+  before_print_window_ids="$(chrome_window_ids_csv)"
   open_chrome_print_preview || return 1
 
   press_chrome_print_save || return 1
@@ -663,9 +817,15 @@ save_one() {
     return 1
   fi
 
+  close_new_chrome_windows "$before_print_window_ids" || true
+
   ls -lh "$outfile"
   pdfinfo "$outfile" | grep -E '^(Title|Pages|Creator|Producer|CreationDate)' || true
 }
+
+if [[ "$auto_github_next_pages" -eq 1 ]]; then
+  collect_rendered_next_page_urls
+fi
 
 generated=()
 generated_pages=()
@@ -747,6 +907,30 @@ validate_github_pr_exports() {
 
 validate_github_pr_exports
 
+validate_rendered_next_exports() {
+  [[ "$auto_github_next_pages" -eq 1 ]] || return 0
+
+  echo "==> Rendered Next export validation"
+  echo "Rendered page count: ${#generated[@]}"
+
+  local f=""
+  local sample=""
+  for f in "${generated[@]}"; do
+    echo "-- $(basename "$f")"
+    pdftotext "$f" - | grep -E -m 8 'Commits ·|Pull requests ·|Issues ·|github.com/[^ ]+|[0-9a-f]{7}' || true
+  done
+
+  if [[ "${#generated[@]}" -gt 1 ]]; then
+    echo "==> Per-page distinctness sample"
+    for f in "${generated[@]}"; do
+      sample="$(pdftotext "$f" - | grep -Eo -m 8 '[0-9a-f]{7}|#[0-9]+' | tr '\n' ' ' || true)"
+      printf '%s: %s\n' "$(basename "$f")" "$sample"
+    done
+  fi
+}
+
+validate_rendered_next_exports
+
 echo "==> Export summary"
 echo "Output directory: $out_dir"
 if [[ -n "$github_repo_full_name" ]]; then
@@ -760,6 +944,9 @@ if [[ -n "$github_result_count" ]]; then
 fi
 if [[ -n "$pages" ]]; then
   echo "Page range: $pages"
+fi
+if [[ "$auto_github_next_pages" -eq 1 ]]; then
+  echo "Rendered Next pages: ${#generated[@]}"
 fi
 echo "Per-page PDFs:"
 printf '  %s\n' "${generated[@]}"

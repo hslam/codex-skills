@@ -6,7 +6,7 @@ Personal Codex skills collection.
 
 | Skill | Purpose |
 | --- | --- |
-| `chrome-print-pdf` | Export logged-in Google Chrome pages, especially private GitHub pages, to PDF with Chrome print preview. |
+| `chrome-print-pdf` | Export logged-in Google Chrome pages, especially private GitHub PR/search/commits pages, to PDF with Chrome print preview. |
 
 ## Layout
 

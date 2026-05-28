@@ -1,4 +1,4 @@
 interface:
   display_name: "Chrome Print PDF"
-  short_description: "Export logged-in Chrome pages to PDF."
-  default_prompt: "Export the current logged-in Chrome page to PDF using Chrome print preview."
+  short_description: "Export logged-in Chrome/GitHub pages to PDF."
+  default_prompt: "Use $chrome-print-pdf to export the current logged-in Chrome or GitHub page to PDF."

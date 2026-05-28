@@ -1,6 +1,6 @@
 ---
 name: chrome-print-pdf
-description: Export logged-in Google Chrome pages to PDF with Chrome's native print preview and macOS Save as PDF. Use when Codex needs to print private GitHub pages, authenticated web pages, GitHub PR/search pagination, or other pages where headless Chrome would lose login state or return 404. Supports multi-page URL pagination, saving into a requested directory, and validating PDFs with poppler.
+description: Export logged-in Google Chrome pages to PDF with Chrome's native print preview and macOS Save as PDF. Use when Codex needs to print private GitHub pages, authenticated web pages, GitHub PR/search pagination, GitHub commits-by-author pagination, or other pages where headless Chrome would lose login state and may return 404. Supports multi-page URL pagination, rendered Next pagination, saving into a requested directory, merging, and validating PDFs with poppler.
 ---
 
 # Chrome Print PDF
@@ -36,24 +36,27 @@ pdftotext -v
 
 ## Workflow
 
-1. Determine the full export scope before printing. For GitHub PR/search result pages, prefer `--auto-github-pages` when `gh` can access the repository; otherwise identify the number of result pages and export every page.
-2. Open the target URL in a new tab in the user's signed-in Google Chrome so existing browser pages are not overwritten. For multi-page exports, reuse that export tab for later pages.
+1. Determine the full export scope before printing. For GitHub PR/search result pages, prefer `--auto-github-pages` when `gh` can access the repository. For GitHub commits pages that use cursor-based `Next` links, prefer `--auto-github-next-pages`. Otherwise identify every page URL and export every page.
+2. Open the target URL in a new tab of the existing signed-in Chrome window so existing browser pages are not overwritten. Only create a new Chrome window when Chrome has no open windows. For multi-page exports, reuse that export tab for later pages.
 3. Wait for the page to load and confirm the title/URL if needed.
 4. Open print preview with `Cmd-P`. The script falls back to Chrome's `File -> Print...` menu when `Cmd-P` does not surface a print preview window.
 5. Use Chrome print preview settings as requested. For normal GitHub lists, keep `Destination: Save as PDF`. To reduce pagination: open More settings, set Margins to None, lower Scale, use a larger Paper size, and turn off Headers and footers.
 6. Press the blue Save button. The script first tries Accessibility by label, then falls back to reading the print window bounds and clicking the lower-right Save location with several retries. It finally accepts `--save-click X,Y` as a manual override.
 7. In the macOS Save dialog, type the file name, use `Cmd-Shift-G` to jump to the destination directory, then click the dialog's Save button through Accessibility. The Save sheet may attach to Chrome's print preview window rather than `window 1`; search all Chrome windows and sheets before falling back to coordinates.
-8. If the GUI automation misses, take a screenshot before guessing and rerun with `--save-click X,Y` only as a last-mile override.
-9. For long exports or retries, prefer `--resume` so existing PDFs that pass `pdfinfo` are reused and only missing or invalid pages are printed again.
-10. Validate every saved page and the merged PDF with `pdfinfo` and `pdftotext`.
+8. After each PDF is saved, close any Chrome windows that were created by the print flow, while keeping the locked export tab/window and the user's pre-existing windows.
+9. If the GUI automation misses, take a screenshot before guessing and rerun with `--save-click X,Y` only as a last-mile override.
+10. For long exports or retries, prefer `--resume` so existing PDFs that pass `pdfinfo` are reused and only missing or invalid pages are printed again.
+11. Validate every saved page and the merged PDF with `pdfinfo` and `pdftotext`.
 
 ## GitHub Pagination
 
-For GitHub PR/search pagination, do not assume the user-provided `page=1` is the only page.
+For GitHub PR/search/commits pagination, do not assume the user-provided first URL is the only page.
 
 Preferred ways to determine page count:
 
 - If `gh` can access the repository, use `scripts/print_chrome_pdf.sh --auto-github-pages` for GitHub PR list URLs with a `q=` filter. The script queries GitHub search for `repo:owner/repo <decoded q>` and uses the result count to set `--pages` internally. GitHub PR lists normally show 25 items per page, so `ceil(count / 25)` gives the browser page range.
+- For GitHub commits pages, first resolve the default branch with `gh api repos/owner/repo --jq .default_branch`, then build `https://github.com/owner/repo/commits/<branch>/?author=<login>`. Use `--auto-github-next-pages`; GitHub commits pages use rendered `Next` cursor URLs such as `after=<sha>+<n>`, not stable `page=N` URLs.
+- To estimate scope for commits-by-author exports, use `gh api 'repos/owner/repo/commits?sha=<branch>&author=<login>&per_page=100' --paginate --jq '.[].sha' | wc -l`. The rendered page count should still come from Chrome's `Next` links.
 - If the page is public, inspect the rendered or fetched pagination controls and use the last page number.
 - If unauthenticated `curl` returns 404 or incomplete content, treat the page as private/session-dependent and use Chrome login state or `gh`; do not rely on headless browser output or public fetches for the final scope.
 
@@ -61,7 +64,7 @@ If GitHub search reports more than 1000 results, treat the auto-inferred page ra
 
 When exporting a GitHub list, report the result count and page range you used, plus the rendered Open/Closed count from the page text, such as `0 Open 63 Closed` and `pages 1-3`.
 
-Final responses for GitHub list exports must include the result count, exported page range, merged PDF path, merged PDF page count, and output directory.
+Final responses for GitHub list exports must include the GitHub login or author used, repository, branch when relevant, result count when known, exported page range, merged PDF path, merged PDF page count, and output directory.
 
 ## Output Layout
 
@@ -101,6 +104,20 @@ GitHub search pagination:
   --out-dir "/path/to/output" \
   --name "repo-prs" \
   --auto-github-pages \
+  --merge \
+  --repo-subdir
+```
+
+GitHub commits-by-author pagination:
+
+```bash
+branch="$(gh api repos/owner/repo --jq .default_branch)"
+author="$(gh api user --jq .login)"
+~/.codex/skills/chrome-print-pdf/scripts/print_chrome_pdf.sh \
+  --url "https://github.com/owner/repo/commits/$branch/?author=$author" \
+  --out-dir "/path/to/output" \
+  --name "repo-commits-$author" \
+  --auto-github-next-pages \
   --merge \
   --repo-subdir
 ```
@@ -165,12 +182,15 @@ pdftotext "$file" - | rg -m 8 'expected text|repo name|query|result count'
 
 For GitHub PR lists, verify the repository name, query text, and expected count such as `0 Open 63 Closed`. Also verify that the per-page PDFs are not all the same page by checking the saved page URLs or distinct text from each page when possible.
 
+For GitHub commits exports, verify the API count, resolved branch, author login, rendered page count, and first/last page samples. Compare API page boundaries when useful, for example first source page `ae13622 ... 10dd66a` and last source page `a8fa6b3 ... bcc088c`.
+
 For merged GitHub list PDFs, verify more than the page count: sample text from the first source page and the last source page, such as representative PR numbers, so the merged file is known to contain the full range. For paginated exports, also check that each page PDF contains the expected `page=N` URL text when Chrome includes it in the printed output.
 
 When the script can identify a GitHub PR list, it prints a validation block after export:
 
 - repository and decoded query
 - expected result count when `--auto-github-pages` was used
+- rendered page count when `--auto-github-next-pages` was used
 - matching text from every generated PDF
 - rendered Open/Closed count text such as `4 Open 179 Closed` when present
 - expected `page=N` URL text for each per-page PDF when present
@@ -192,7 +212,8 @@ Keep the final response concise but auditable. Include:
 ## Notes
 
 - Chrome UI cannot make a truly infinite one-page PDF. It can only reduce pagination by paper size, margins, and scale. For a real single long page, create a local HTML or use DevTools/Playwright with custom page dimensions.
-- The script creates a Chrome window if none exists, opens the first target URL in a new export tab instead of overwriting the current tab, waits for `document.readyState` before printing, and waits for the print preview window instead of relying only on fixed sleeps.
+- The script creates a Chrome window only if none exists, opens the first target URL in a new export tab in the existing browser window instead of overwriting the current tab, locks onto that export tab for page-load and Next-link checks, waits for `document.readyState` before printing, and waits for the print preview window instead of relying only on fixed sleeps.
+- Before opening print preview, the script records the current Chrome window IDs. After the PDF file appears, it closes only the Chrome windows created during that print step so print-preview residue does not pile up as separate browser windows.
 - Do not reuse existing PDFs when the user is teaching or requesting the generation workflow. Generate from the current Chrome page and validate the new file.
 - `--resume` is for interrupted or long exports. Do not use it when the user explicitly wants a fresh export unless they approve reusing valid existing PDFs.
 - Do not name a shell variable `path` in zsh scripts; it can shadow `PATH` and make commands like `osascript` disappear.
