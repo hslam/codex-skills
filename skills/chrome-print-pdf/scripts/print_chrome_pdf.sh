@@ -7,9 +7,9 @@ Usage:
   print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M | --auto-github-pages] [--merge] [--repo-subdir | --subdir NAME] [--resume] [--save-click X,Y]
 
 Examples:
-  print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs.pdf
-  print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs --auto-github-pages --merge --repo-subdir
-  print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs --pages 1-10 --merge --repo-subdir --resume
+  print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "/path/to/output" --name repo-prs.pdf
+  print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "/path/to/output" --name repo-prs --auto-github-pages --merge --repo-subdir
+  print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "/path/to/output" --name repo-prs --pages 1-10 --merge --repo-subdir --resume
 EOF
 }
 

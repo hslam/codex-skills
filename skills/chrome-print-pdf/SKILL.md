@@ -75,11 +75,11 @@ Use stable names that include the repository and a short filter description. Pre
 Example output:
 
 ```text
-$HOME/Documents/dev-pdf/
-  tidb-operator-cse/
-    tidb-operator-cse-closed-prs-hslam-page-1.pdf
-    tidb-operator-cse-closed-prs-hslam-page-2.pdf
-    tidb-operator-cse-closed-prs-hslam-all-pages.pdf
+/path/to/output/
+  example-repo/
+    example-repo-closed-prs-user-page-1.pdf
+    example-repo-closed-prs-user-page-2.pdf
+    example-repo-closed-prs-user-all-pages.pdf
 ```
 
 ## Common Commands
@@ -89,7 +89,7 @@ Single page:
 ```bash
 ~/.codex/skills/chrome-print-pdf/scripts/print_chrome_pdf.sh \
   --url "https://github.com/owner/repo/pulls?q=is%3Apr+is%3Aclosed+author%3Auser" \
-  --out-dir "$HOME/Documents/dev-pdf" \
+  --out-dir "/path/to/output" \
   --name "repo-prs-page-1.pdf"
 ```
 
@@ -98,7 +98,7 @@ GitHub search pagination:
 ```bash
 ~/.codex/skills/chrome-print-pdf/scripts/print_chrome_pdf.sh \
   --url "https://github.com/owner/repo/pulls?q=is%3Apr+is%3Aclosed+author%3Auser" \
-  --out-dir "$HOME/Documents/dev-pdf" \
+  --out-dir "/path/to/output" \
   --name "repo-prs" \
   --auto-github-pages \
   --merge \
@@ -110,7 +110,7 @@ Resume an interrupted multi-page export:
 ```bash
 ~/.codex/skills/chrome-print-pdf/scripts/print_chrome_pdf.sh \
   --url "https://github.com/owner/repo/pulls?q=is%3Apr+is%3Aclosed+author%3Auser" \
-  --out-dir "$HOME/Documents/dev-pdf" \
+  --out-dir "/path/to/output" \
   --name "repo-closed-prs-user" \
   --pages 1-10 \
   --merge \
@@ -132,7 +132,7 @@ Manual print-preview Save override:
 ```bash
 ~/.codex/skills/chrome-print-pdf/scripts/print_chrome_pdf.sh \
   --url "https://github.com/owner/repo/pulls?q=is%3Apr" \
-  --out-dir "$HOME/Documents/dev-pdf" \
+  --out-dir "/path/to/output" \
   --name "repo-prs" \
   --pages 1-3 \
   --merge \
@@ -149,7 +149,7 @@ Manual subdirectory:
 ```bash
 ~/.codex/skills/chrome-print-pdf/scripts/print_chrome_pdf.sh \
   --url "https://example.com/report" \
-  --out-dir "$HOME/Documents/dev-pdf" \
+  --out-dir "/path/to/output" \
   --name "report.pdf" \
   --subdir "example-report"
 ```
