@@ -1,8 +1,19 @@
 # macOS Chrome Print Reference
 
+## Save Button Targeting
+
+Chrome print preview does not always expose its blue Save button through the macOS Accessibility tree. Prefer this order:
+
+1. Read the print window bounds from Accessibility and click the Save location relative to the lower-right corner.
+2. Retry the relative click a few times because Chrome can render the button before it is ready to accept a click.
+3. Try Accessibility by button label.
+4. Use `--save-click X,Y` only when the automatic target misses.
+
+`cliclick` uses logical screen coordinates. macOS screenshots may be physical pixels on Retina displays, so screenshot coordinates are not always the same numbers as click coordinates.
+
 ## Example Coordinates
 
-These coordinates are examples from one Retina macOS desktop. `cliclick` uses logical points, while screenshots may be Retina pixels. Re-measure on a new display, after moving windows, or after changing display scaling.
+These coordinates are examples from one Retina macOS desktop. Re-measure on a new display, after moving windows, or after changing display scaling.
 
 Example working coordinates when the Chrome print preview window is at `pos=335,122 size=1320,871`:
 
@@ -10,7 +21,7 @@ Example working coordinates when the Chrome print preview window is at `pos=335,
 - macOS Save dialog Save button: `c:1118,612`
 - Go to folder result row: `dc:991,527`
 
-Coordinates may need adjustment if windows are moved or display scaling changes. Use:
+The script should no longer need these coordinates when the window is moved. Use these commands only for debugging or a temporary `--save-click` override:
 
 ```bash
 cliclick p
@@ -19,9 +30,9 @@ screencapture -x /tmp/state.png
 
 ## Fragile Parts
 
-Chrome print preview's blue Save is drawn inside Chrome. AppleScript often cannot see it in the accessibility tree. Use `cliclick` slow down/up instead of `click`.
+Chrome print preview's blue Save is drawn inside Chrome. AppleScript often cannot see it in the accessibility tree. The script therefore targets the button relative to the print window bounds and uses a slow `cliclick` down/up sequence instead of a plain click.
 
-The macOS Save dialog may remember the previous folder. If it is already in the desired folder, only type the file name and click Save. If not:
+The macOS Save dialog is a native dialog and is usually visible to Accessibility. If the script cannot click its Save button by label, use this manual recovery:
 
 1. Press `Cmd-Shift-G`.
 2. Type the directory path.

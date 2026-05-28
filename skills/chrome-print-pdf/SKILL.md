@@ -38,9 +38,9 @@ pdftotext -v
 2. Wait for the page to load and confirm the title/URL if needed.
 3. Open print preview with `Cmd-P`.
 4. Use Chrome print preview settings as requested. For normal GitHub lists, keep `Destination: Save as PDF`. To reduce pagination: open More settings, set Margins to None, lower Scale, use a larger Paper size, and turn off Headers and footers.
-5. Press the blue Save button with `cliclick` using a slow down/up sequence. A simple click often fails on Chrome's print preview.
-6. In the macOS Save dialog, type the file name. If the folder is not already correct, use `Cmd-Shift-G`, type the destination path, then double-click the result row to enter the folder.
-7. Press/click the Save button in the macOS Save dialog.
+5. Press the blue Save button. The script reads the print window bounds, clicks the lower-right Save location with retries, then tries Accessibility by label, and finally accepts `--save-click X,Y` as a manual override.
+6. In the macOS Save dialog, type the file name, use `Cmd-Shift-G` to jump to the destination directory, then click the dialog's Save button through Accessibility.
+7. If the GUI automation misses, take a screenshot before guessing and rerun with `--save-click X,Y` only as a last-mile override.
 8. Validate the output with `pdfinfo` and `pdftotext`.
 
 ## Output Layout
@@ -78,6 +78,19 @@ GitHub search pagination:
   --pages 1-3 \
   --merge \
   --repo-subdir
+```
+
+Manual print-preview Save override:
+
+```bash
+~/.codex/skills/chrome-print-pdf/scripts/print_chrome_pdf.sh \
+  --url "https://github.com/owner/repo/pulls?q=is%3Apr" \
+  --out-dir "$HOME/Documents/dev-pdf" \
+  --name "repo-prs" \
+  --pages 1-3 \
+  --merge \
+  --repo-subdir \
+  --save-click 1620,942
 ```
 
 Manual subdirectory:
