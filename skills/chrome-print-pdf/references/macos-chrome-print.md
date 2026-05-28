@@ -4,10 +4,11 @@
 
 Chrome print preview does not always expose its blue Save button through the macOS Accessibility tree. Prefer this order:
 
-1. Read the print window bounds from Accessibility and click the Save location relative to the lower-right corner.
-2. Retry the relative click a few times because Chrome can render the button before it is ready to accept a click.
-3. Try Accessibility by button label.
-4. Use `--save-click X,Y` only when the automatic target misses.
+1. Try Accessibility by button label.
+2. Read the print window bounds from Accessibility and target the Save location relative to the lower-right corner.
+3. Move the pointer slightly above the button, move it back over Save, then click. Some Chrome builds only arm the button after hover movement.
+4. Retry small coordinate offsets around the estimated point because display scaling and print-preview layout can shift the button by a few pixels.
+5. Use `--save-click X,Y` only when the automatic target misses.
 
 `cliclick` uses logical screen coordinates. macOS screenshots may be physical pixels on Retina displays, so screenshot coordinates are not always the same numbers as click coordinates.
 
@@ -30,7 +31,9 @@ screencapture -x /tmp/state.png
 
 ## Fragile Parts
 
-Chrome print preview's blue Save is drawn inside Chrome. AppleScript often cannot see it in the accessibility tree. The script therefore targets the button relative to the print window bounds and uses a slow `cliclick` down/up sequence instead of a plain click.
+Chrome print preview's blue Save is drawn inside Chrome. AppleScript often cannot see it in the accessibility tree. The script therefore targets the button relative to the print window bounds, moves the pointer across the button to establish hover, and tries nearby offsets before giving up.
+
+GitHub pages can keep rendering after `document.readyState` reaches `complete`. Use `--page-settle-seconds N` for extra settling time; the script also waits for GitHub PR counts or commit SHAs before opening print preview.
 
 `Cmd-P` can occasionally fail to surface the print preview even when the target tab is frontmost. In that case, use Chrome's menu item `File -> Print...`; it often succeeds because it goes through the native menu system rather than a keyboard shortcut routed through the web page.
 
@@ -45,7 +48,7 @@ Pressing Enter in the Go to folder result may not enter the directory reliably.
 
 ## Recovery
 
-If stuck in a dialog, take a screenshot before guessing:
+If stuck in a dialog, take a screenshot before guessing. The script automatically saves failure screenshots under `/tmp/chrome-print-pdf-failure-*-attempt-*.png` when a page print attempt fails.
 
 ```bash
 screencapture -x /tmp/chrome-print-state.png

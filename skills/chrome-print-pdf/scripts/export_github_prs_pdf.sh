@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  export_github_prs_pdf.sh --repo OWNER/REPO|GITHUB_URL --out-dir DIR [--author USER] [--state closed|open|all] [--name NAME] [--resume] [--save-click X,Y] [--print-url]
+  export_github_prs_pdf.sh --repo OWNER/REPO|GITHUB_URL --out-dir DIR [--author USER] [--state closed|open|all] [--name NAME] [--resume] [--save-click X,Y] [--page-settle-seconds N] [--print-retries N] [--print-url]
 
 Examples:
   export_github_prs_pdf.sh --repo tidbcloud/tidb-operator-cse --out-dir /tmp/exports
@@ -21,6 +21,8 @@ state="closed"
 name=""
 resume=0
 save_click=""
+page_settle_seconds=""
+print_retries=""
 print_url=0
 author_provided=0
 state_provided=0
@@ -34,6 +36,8 @@ while [[ $# -gt 0 ]]; do
     --name) name="$2"; shift 2 ;;
     --resume) resume=1; shift ;;
     --save-click) save_click="$2"; shift 2 ;;
+    --page-settle-seconds) page_settle_seconds="$2"; shift 2 ;;
+    --print-retries) print_retries="$2"; shift 2 ;;
     --print-url) print_url=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
@@ -241,6 +245,12 @@ if [[ "$resume" -eq 1 ]]; then
 fi
 if [[ -n "$save_click" ]]; then
   cmd+=(--save-click "$save_click")
+fi
+if [[ -n "$page_settle_seconds" ]]; then
+  cmd+=(--page-settle-seconds "$page_settle_seconds")
+fi
+if [[ -n "$print_retries" ]]; then
+  cmd+=(--print-retries "$print_retries")
 fi
 
 "${cmd[@]}"

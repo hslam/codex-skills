@@ -38,13 +38,13 @@ pdftotext -v
 
 1. Determine the full export scope before printing. For GitHub commits pages, prefer `export_github_commits_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, branch, rendered Next pages, merge output, window count, SHA validation, and writes a `*-audit.txt` file next to the merged PDF. For closed PR pages by author from a repository URL, prefer `export_github_prs_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, builds the `pulls?page=1&q=is%3Apr+is%3Aclosed+author%3AUSER` URL, exports all inferred pages, merges, and writes a `*-audit.txt` file. For other GitHub PR/search result pages, prefer `print_chrome_pdf.sh --auto-github-pages` when `gh` can access the repository. Otherwise identify every page URL and export every page.
 2. Open the target URL in a new tab of the existing signed-in Chrome window so existing browser pages are not overwritten. Only create a new Chrome window when Chrome has no open windows. For multi-page exports, reuse that export tab for later pages.
-3. Wait for the page to load and confirm the title/URL if needed.
+3. Wait for the page to load and confirm the title/URL if needed. The print script waits for GitHub PR counts or commit SHAs before printing, then pauses for `--page-settle-seconds` seconds, defaulting to `CHROME_PRINT_PAGE_SETTLE_SECONDS` or `0.8`.
 4. Open print preview with `Cmd-P`. The script falls back to Chrome's `File -> Print...` menu when `Cmd-P` does not surface a print preview window.
 5. Use Chrome print preview settings as requested. For normal GitHub lists, keep `Destination: Save as PDF`. To reduce pagination: open More settings, set Margins to None, lower Scale, use a larger Paper size, and turn off Headers and footers.
-6. Press the blue Save button. The script first tries Accessibility by label, then falls back to reading the print window bounds and clicking the lower-right Save location with several retries. It finally accepts `--save-click X,Y` as a manual override.
+6. Press the blue Save button. The script first tries Accessibility by label, then falls back to reading the print window bounds and clicking near the lower-right Save location with hover movement and small coordinate offsets. It finally accepts `--save-click X,Y` as a manual override.
 7. In the macOS Save dialog, type the file name, use `Cmd-Shift-G` to jump to the destination directory, then click the dialog's Save button through Accessibility. The Save sheet may attach to Chrome's print preview window rather than `window 1`; search all Chrome windows and sheets before falling back to coordinates.
 8. After each PDF is saved, close any Chrome windows that were created by the print flow, while keeping the locked export tab/window and the user's pre-existing windows.
-9. If the GUI automation misses, take a screenshot before guessing and rerun with `--save-click X,Y` only as a last-mile override.
+9. If the GUI automation misses, the script screenshots `/tmp/chrome-print-pdf-failure-*-attempt-*.png`, dismisses print UI, and retries the page according to `--print-retries`, defaulting to `CHROME_PRINT_PAGE_RETRIES` or `1`. Use `--save-click X,Y` only as a last-mile override.
 10. For long exports or retries, prefer `--resume` so existing PDFs that pass `pdfinfo` are reused and only missing or invalid pages are printed again.
 11. Validate every saved page and the merged PDF with `pdfinfo` and `pdftotext`.
 
@@ -118,6 +118,8 @@ GitHub closed PRs by author from a repository URL:
 
 Use `--author USER`, `--state open|closed|all`, or `--name NAME` only when overriding the current GitHub login, default `closed` PR state, or output basename. Use `--print-url` when you only need to verify the generated PR URL and page range.
 
+Use `--page-settle-seconds N` when a GitHub page renders slowly after `document.readyState=complete`. Use `--print-retries N` to retry each failed page before falling back to the printed rerun command.
+
 When the `--repo` value is already a GitHub `pulls` URL with a `q=` parameter, `export_github_prs_pdf.sh` preserves that query unless explicit `--author` or `--state` flags override it.
 
 GitHub commits-by-author export:
@@ -129,6 +131,8 @@ GitHub commits-by-author export:
 ```
 
 Use `--author USER`, `--branch BRANCH`, or `--name NAME` only when overriding the current GitHub login, repository default branch, or output basename. Use `--resume` after an interrupted export to reuse valid per-page PDFs.
+
+Use `--page-settle-seconds N` and `--print-retries N` for slow-rendering commit pages or flaky print preview Save clicks; both options are passed through to `print_chrome_pdf.sh`.
 
 When the `--repo` value is a GitHub commits or tree URL, `export_github_commits_pdf.sh` preserves `author=` from the URL and the `/commits/<branch>` or `/tree/<branch>` path unless explicit `--author` or `--branch` flags override them. Branch-specific inputs default to names like `repo-branch-commits-user` so they do not overwrite default-branch exports.
 

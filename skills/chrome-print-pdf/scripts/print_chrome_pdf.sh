@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M | --auto-github-pages | --auto-github-next-pages] [--merge] [--repo-subdir | --subdir NAME] [--resume] [--save-click X,Y]
+  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M | --auto-github-pages | --auto-github-next-pages] [--merge] [--repo-subdir | --subdir NAME] [--resume] [--save-click X,Y] [--page-settle-seconds N] [--print-retries N]
 
 Examples:
   print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "/path/to/output" --name repo-prs.pdf
@@ -27,6 +27,7 @@ auto_github_pages=0
 auto_github_next_pages=0
 auto_next_page_limit=200
 page_settle_seconds="${CHROME_PRINT_PAGE_SETTLE_SECONDS:-0.8}"
+print_retries="${CHROME_PRINT_PAGE_RETRIES:-1}"
 github_result_count=""
 github_query=""
 github_repo_full_name=""
@@ -43,6 +44,8 @@ while [[ $# -gt 0 ]]; do
     --auto-github-pages) auto_github_pages=1; shift ;;
     --auto-github-next-pages) auto_github_next_pages=1; shift ;;
     --auto-next-page-limit) auto_next_page_limit="$2"; shift 2 ;;
+    --page-settle-seconds) page_settle_seconds="$2"; shift 2 ;;
+    --print-retries) print_retries="$2"; shift 2 ;;
     --merge) merge=1; shift ;;
     --repo-subdir) repo_subdir=1; shift ;;
     --subdir) subdir="$2"; shift 2 ;;
@@ -76,7 +79,12 @@ if [[ ! "$auto_next_page_limit" =~ ^[0-9]+$ || "$auto_next_page_limit" -lt 1 ]];
 fi
 
 if [[ ! "$page_settle_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-  echo "CHROME_PRINT_PAGE_SETTLE_SECONDS must be a non-negative number." >&2
+  echo "--page-settle-seconds / CHROME_PRINT_PAGE_SETTLE_SECONDS must be a non-negative number." >&2
+  exit 2
+fi
+
+if [[ ! "$print_retries" =~ ^[0-9]+$ ]]; then
+  echo "--print-retries / CHROME_PRINT_PAGE_RETRIES must be a non-negative integer." >&2
   exit 2
 fi
 
@@ -326,10 +334,37 @@ wait_for_chrome_print_window() {
 
 wiggle_click() {
   local point="$1"
+  local dx="${2:-0}"
+  local dy="${3:-0}"
   local x=""
   local y=""
   IFS=, read -r x y <<< "$point"
-  cliclick m:"$x,$((y - 28))" w:200 m:"$point" w:200 c:.
+  x=$((x + dx))
+  y=$((y + dy))
+  cliclick m:"$x,$((y - 28))" w:200 m:"$x,$y" w:200 c:.
+}
+
+try_chrome_save_point() {
+  local point="$1"
+  local offset=""
+  local dx=""
+  local dy=""
+  local offsets=("0,0" "-10,0" "10,0" "0,-5" "0,5" "-16,-3" "16,-3")
+
+  for offset in "${offsets[@]}"; do
+    IFS=, read -r dx dy <<< "$offset"
+    echo "==> Pressing Chrome Save near $point offset $offset"
+    wiggle_click "$point" "$dx" "$dy"
+    sleep 1.2
+    if macos_save_dialog_visible; then
+      return
+    fi
+    if ! chrome_print_window_visible; then
+      return 1
+    fi
+  done
+
+  return 1
 }
 
 press_chrome_print_save() {
@@ -337,8 +372,8 @@ press_chrome_print_save() {
 
   if [[ -n "$click_point" ]]; then
     echo "==> Pressing Chrome Save at override $click_point"
-    wiggle_click "$click_point"
-    return
+    try_chrome_save_point "$click_point"
+    return $?
   fi
 
   for attempt in 1 2 3; do
@@ -362,9 +397,7 @@ press_chrome_print_save() {
     IFS=, read -r x y w h <<< "$bounds"
     click_point="$((x + w - 53)),$((y + h - 42))"
     echo "==> Pressing Chrome Save at estimated $click_point (attempt $attempt)"
-    wiggle_click "$click_point"
-    sleep 1.5
-    if macos_save_dialog_visible; then
+    if try_chrome_save_point "$click_point"; then
       return
     fi
   done
@@ -668,6 +701,8 @@ tell application "Google Chrome"
   if tabUrl does not contain "$escaped_url" and "$escaped_url" does not contain tabUrl then error "URL has not settled"
   set readyState to execute targetTab javascript "document.readyState"
   if readyState is not "complete" then error "Page is not complete"
+  set printReady to execute targetTab javascript "(() => { const text = document.body ? document.body.innerText : ''; if (!text || text.length < 40) return 'waiting'; const host = location.hostname; const path = location.pathname; if (host === 'github.com' && /\\/pulls\\/?$/.test(path)) { const hasCounts = /\\d+\\s+Open\\s+\\d+\\s+Closed/.test(text); const hasRows = !!document.querySelector('a[href*=\"/pull/\"]'); const hasEmptyState = /No results matched|0\\s+Open\\s+0\\s+Closed/.test(text); return hasCounts && (hasRows || hasEmptyState) ? 'ready' : 'waiting'; } if (host === 'github.com' && /\\/commits(\\/|$)/.test(path)) { const hasCommitText = /Commits/.test(text); const hasSha = /[0-9a-f]{7}/.test(text); const hasEmptyState = /No commits|No results|This branch has no commits/i.test(text); return hasCommitText && (hasSha || hasEmptyState) ? 'ready' : 'waiting'; } return 'ready'; })()"
+  if printReady is not "ready" then error "Page content is not ready for print"
 end tell
 OSA
     then
@@ -776,7 +811,40 @@ print_rerun_hint() {
   fi
 }
 
-save_one() {
+capture_failure_state() {
+  local page="$1"
+  local attempt="$2"
+  local screenshot="/tmp/chrome-print-pdf-failure-${page}-attempt-${attempt}.png"
+
+  if command -v screencapture >/dev/null; then
+    screencapture -x "$screenshot" || true
+    echo "==> Saved failure screenshot: $screenshot" >&2
+  fi
+}
+
+dismiss_chrome_print_ui() {
+  osascript <<'OSA' >/dev/null 2>&1 || true
+tell application "Google Chrome" to activate
+tell application "System Events"
+  tell process "Google Chrome"
+    set frontmost to true
+    key code 53
+    delay 0.2
+    key code 53
+    repeat with i from (count of windows) to 1 by -1
+      try
+        set windowName to name of window i as text
+      on error
+        set windowName to ""
+      end try
+      if windowName is "Print" or windowName contains "Print" then close window i
+    end repeat
+  end tell
+end tell
+OSA
+}
+
+save_one_once() {
   local page="$1"
   local target_url="$url"
   local file="$name"
@@ -835,6 +903,32 @@ save_one() {
 
   ls -lh "$outfile"
   pdfinfo "$outfile" | grep -E '^(Title|Pages|Creator|Producer|CreationDate)' || true
+}
+
+save_one() {
+  local page="$1"
+  local attempt=1
+  local max_attempts=$((print_retries + 1))
+
+  while [[ "$attempt" -le "$max_attempts" ]]; do
+    if [[ "$max_attempts" -gt 1 ]]; then
+      echo "==> Print attempt $attempt/$max_attempts for page $page"
+    fi
+    if save_one_once "$page"; then
+      return
+    fi
+
+    capture_failure_state "$page" "$attempt"
+    dismiss_chrome_print_ui
+
+    if [[ "$attempt" -lt "$max_attempts" ]]; then
+      echo "==> Retrying page $page after print failure" >&2
+      sleep 1
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  return 1
 }
 
 if [[ "$auto_github_next_pages" -eq 1 ]]; then
