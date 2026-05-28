@@ -82,9 +82,22 @@ pr_plan="$("$repo_root/skills/chrome-print-pdf/scripts/export_github_prs_pdf.sh"
   --out-dir "$tmp/pdf" \
   --dry-run)"
 assert_contains "$pr_plan" "Mode: dry-run"
+assert_contains "$pr_plan" "Author filter: hslam"
+assert_contains "$pr_plan" "State filter: closed"
 assert_contains "$pr_plan" "Result count: 63"
 assert_contains "$pr_plan" "Page range: 1-3"
 assert_contains "$pr_plan" "Audit JSON: $tmp/pdf/tidb-operator-cse/tidb-operator-cse-closed-prs-hslam-audit.json"
+[[ ! -e "$tmp/pdf/tidb-operator-cse" ]]
+
+pr_all_plan="$("$repo_root/skills/chrome-print-pdf/scripts/export_github_prs_pdf.sh" \
+  --repo "https://github.com/tidbcloud/tidb-operator-cse/pulls?page=1&q=is%3Apr" \
+  --out-dir "$tmp/pdf" \
+  --dry-run)"
+assert_contains "$pr_all_plan" "Author filter: none"
+assert_contains "$pr_all_plan" "Author filter source: query has no author filter"
+assert_contains "$pr_all_plan" "State filter: all"
+assert_contains "$pr_all_plan" "State filter source: query has no state filter"
+assert_contains "$pr_all_plan" "Audit JSON: $tmp/pdf/tidb-operator-cse/tidb-operator-cse-all-prs-audit.json"
 [[ ! -e "$tmp/pdf/tidb-operator-cse" ]]
 
 commit_plan="$("$repo_root/skills/chrome-print-pdf/scripts/export_github_commits_pdf.sh" \
@@ -92,10 +105,32 @@ commit_plan="$("$repo_root/skills/chrome-print-pdf/scripts/export_github_commits
   --out-dir "$tmp/pdf" \
   --dry-run)"
 assert_contains "$commit_plan" "Mode: dry-run"
+assert_contains "$commit_plan" "Author filter: hslam"
 assert_contains "$commit_plan" "Commit count: 70"
 assert_contains "$commit_plan" "Estimated page range: 1-2"
 assert_contains "$commit_plan" "Audit JSON: $tmp/pdf/tidb-operator-cse/tidb-operator-cse-commits-hslam-audit.json"
 [[ ! -e "$tmp/pdf/tidb-operator-cse" ]]
+
+commit_all_plan="$("$repo_root/skills/chrome-print-pdf/scripts/export_github_commits_pdf.sh" \
+  --repo tidbcloud/tidb-operator-cse \
+  --out-dir "$tmp/pdf" \
+  --all-authors \
+  --dry-run)"
+assert_contains "$commit_all_plan" "Author filter: none"
+assert_contains "$commit_all_plan" "Author filter source: --all-authors"
+assert_contains "$commit_all_plan" "Target URL: https://github.com/tidbcloud/tidb-operator-cse/commits/serverless-on-release-1.4"
+assert_contains "$commit_all_plan" "Audit JSON: $tmp/pdf/tidb-operator-cse/tidb-operator-cse-commits-all-authors-audit.json"
+[[ ! -e "$tmp/pdf/tidb-operator-cse" ]]
+
+if "$repo_root/skills/chrome-print-pdf/scripts/export_github_commits_pdf.sh" \
+  --repo tidbcloud/tidb-operator-cse \
+  --out-dir "$tmp/pdf" \
+  --author hslam \
+  --all-authors \
+  --dry-run >/dev/null 2>&1; then
+  echo "--all-authors unexpectedly succeeded with --author" >&2
+  exit 1
+fi
 
 "$repo_root/scripts/install.sh" --dest "$tmp/skills" chrome-print-pdf >/dev/null
 "$repo_root/scripts/install.sh" --dest "$tmp/skills" --check chrome-print-pdf >/dev/null

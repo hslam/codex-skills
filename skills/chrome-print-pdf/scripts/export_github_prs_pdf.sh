@@ -185,7 +185,51 @@ if [[ -n "$input_query" && "$author_provided" -eq 0 && "$state_provided" -eq 0 ]
     github_query="is:pr $github_query"
   fi
   if [[ -z "$input_state" ]]; then
-    state_label="search"
+    if [[ "$github_query" =~ ^[[:space:]]*is:pr[[:space:]]*$ ]]; then
+      state_label="all"
+    else
+      state_label="search"
+    fi
+  fi
+fi
+
+query_author=""
+if [[ "$github_query" =~ (^|[[:space:]])author:([^[:space:]]+) ]]; then
+  query_author="${BASH_REMATCH[2]}"
+fi
+if [[ -n "$query_author" ]]; then
+  author_filter="$query_author"
+  if [[ "$author_provided" -eq 1 ]]; then
+    author_filter_source="--author"
+  elif [[ -n "$input_author" ]]; then
+    author_filter_source="input URL q"
+  else
+    author_filter_source="$author_source"
+  fi
+else
+  author_filter="none"
+  author_filter_source="query has no author filter"
+fi
+
+query_state=""
+if [[ "$github_query" =~ (^|[[:space:]])is:(open|closed)([[:space:]]|$) ]]; then
+  query_state="${BASH_REMATCH[2]}"
+fi
+if [[ -n "$query_state" ]]; then
+  state_filter="$query_state"
+  if [[ "$state_provided" -eq 1 ]]; then
+    state_filter_source="--state"
+  elif [[ -n "$input_state" ]]; then
+    state_filter_source="input URL q"
+  else
+    state_filter_source="$state_source"
+  fi
+else
+  state_filter="all"
+  if [[ "$state_provided" -eq 1 && "$state" == "all" ]]; then
+    state_filter_source="--state"
+  else
+    state_filter_source="query has no state filter"
   fi
 fi
 
@@ -203,15 +247,19 @@ if [[ "$page_count" -lt 1 ]]; then
 fi
 
 if [[ -z "$name" ]]; then
-  name="$repo_name-$(filename_part "$state_label")-prs-$author"
+  if [[ "$author_filter" == "none" ]]; then
+    name="$repo_name-$(filename_part "$state_label")-prs"
+  else
+    name="$repo_name-$(filename_part "$state_label")-prs-$author_filter"
+  fi
 fi
 
 if [[ "$print_url" -eq 1 ]]; then
   echo "Repository: $repo_full_name"
-  echo "Author: $author"
-  echo "Author source: $author_source"
-  echo "State: $state"
-  echo "State source: $state_source"
+  echo "Author filter: $author_filter"
+  echo "Author filter source: $author_filter_source"
+  echo "State filter: $state_filter"
+  echo "State filter source: $state_filter_source"
   echo "Query: $github_query"
   echo "Query source: $query_source"
   echo "Result count: $result_count"
@@ -229,10 +277,10 @@ audit_json_file="$repo_out_dir/${name%.pdf}-audit.json"
 if [[ "$dry_run" -eq 1 ]]; then
   echo "Mode: dry-run"
   echo "Repository: $repo_full_name"
-  echo "Author: $author"
-  echo "Author source: $author_source"
-  echo "State: $state"
-  echo "State source: $state_source"
+  echo "Author filter: $author_filter"
+  echo "Author filter source: $author_filter_source"
+  echo "State filter: $state_filter"
+  echo "State filter source: $state_filter_source"
   echo "Query: $github_query"
   echo "Query source: $query_source"
   echo "Result count: $result_count"
@@ -287,10 +335,10 @@ after_windows="$(osascript -e 'tell application "Google Chrome" to return count 
 
 echo "==> GitHub PR export audit"
 echo "Repository: $repo_full_name"
-echo "Author: $author"
-echo "Author source: $author_source"
-echo "State: $state"
-echo "State source: $state_source"
+echo "Author filter: $author_filter"
+echo "Author filter source: $author_filter_source"
+echo "State filter: $state_filter"
+echo "State filter source: $state_filter_source"
 echo "Query: $github_query"
 echo "Query source: $query_source"
 echo "Result count: $result_count"
@@ -320,10 +368,10 @@ fi
   echo "GitHub PR export audit"
   echo "Generated at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
   echo "Repository: $repo_full_name"
-  echo "Author: $author"
-  echo "Author source: $author_source"
-  echo "State: $state"
-  echo "State source: $state_source"
+  echo "Author filter: $author_filter"
+  echo "Author filter source: $author_filter_source"
+  echo "State filter: $state_filter"
+  echo "State filter source: $state_filter_source"
   echo "Query: $github_query"
   echo "Query source: $query_source"
   echo "Result count: $result_count"
@@ -357,10 +405,10 @@ done
 
 JSON_FILE="$audit_json_file" \
 REPO_FULL_NAME="$repo_full_name" \
-AUTHOR="$author" \
-AUTHOR_SOURCE="$author_source" \
-STATE="$state" \
-STATE_SOURCE="$state_source" \
+AUTHOR_FILTER="$author_filter" \
+AUTHOR_FILTER_SOURCE="$author_filter_source" \
+STATE_FILTER="$state_filter" \
+STATE_FILTER_SOURCE="$state_filter_source" \
 QUERY="$github_query" \
 QUERY_SOURCE="$query_source" \
 RESULT_COUNT="$result_count" \
@@ -389,10 +437,12 @@ def as_int(name):
 data = {
     "type": "github_pr_export",
     "repository": os.environ["REPO_FULL_NAME"],
-    "author": os.environ["AUTHOR"],
-    "author_source": os.environ["AUTHOR_SOURCE"],
-    "state": os.environ["STATE"],
-    "state_source": os.environ["STATE_SOURCE"],
+    "author": None if os.environ["AUTHOR_FILTER"] == "none" else os.environ["AUTHOR_FILTER"],
+    "author_filter": None if os.environ["AUTHOR_FILTER"] == "none" else os.environ["AUTHOR_FILTER"],
+    "author_filter_source": os.environ["AUTHOR_FILTER_SOURCE"],
+    "state": os.environ["STATE_FILTER"],
+    "state_filter": os.environ["STATE_FILTER"],
+    "state_filter_source": os.environ["STATE_FILTER_SOURCE"],
     "query": os.environ["QUERY"],
     "query_source": os.environ["QUERY_SOURCE"],
     "result_count": as_int("RESULT_COUNT"),

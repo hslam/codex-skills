@@ -4,11 +4,12 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  export_github_commits_pdf.sh --repo OWNER/REPO|GITHUB_URL --out-dir DIR [--author USER] [--branch BRANCH] [--name NAME] [--resume] [--save-click X,Y] [--page-settle-seconds N] [--print-retries N] [--dry-run]
+  export_github_commits_pdf.sh --repo OWNER/REPO|GITHUB_URL --out-dir DIR [--author USER | --all-authors] [--branch BRANCH] [--name NAME] [--resume] [--save-click X,Y] [--page-settle-seconds N] [--print-retries N] [--dry-run]
 
 Examples:
   export_github_commits_pdf.sh --repo tidbcloud/ffs --out-dir /tmp/exports
   export_github_commits_pdf.sh --repo https://github.com/ngaut/rfs --out-dir /tmp/exports --author hslam
+  export_github_commits_pdf.sh --repo https://github.com/ngaut/rfs --out-dir /tmp/exports --all-authors
   export_github_commits_pdf.sh --repo https://github.com/pingcap/badger/commits/sharding --out-dir /tmp/exports
   export_github_commits_pdf.sh --repo https://github.com/ngaut/unistore/tree/sharding --out-dir /tmp/exports
 EOF
@@ -24,12 +25,15 @@ save_click=""
 page_settle_seconds=""
 print_retries=""
 dry_run=0
+all_authors=0
+author_provided=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo) repo_input="$2"; shift 2 ;;
     --out-dir) out_dir="$2"; shift 2 ;;
-    --author) author="$2"; shift 2 ;;
+    --author) author="$2"; author_provided=1; shift 2 ;;
+    --all-authors) all_authors=1; shift ;;
     --branch) branch="$2"; shift 2 ;;
     --name) name="$2"; shift 2 ;;
     --resume) resume=1; shift ;;
@@ -44,6 +48,11 @@ done
 
 if [[ -z "$repo_input" || -z "$out_dir" ]]; then
   usage >&2
+  exit 2
+fi
+
+if [[ "$all_authors" -eq 1 && "$author_provided" -eq 1 ]]; then
+  echo "--all-authors cannot be combined with --author." >&2
   exit 2
 fi
 
@@ -136,7 +145,12 @@ repo_name="${repo_full_name##*/}"
 author_from_input="$(query_param "$repo_input" author || true)"
 branch_from_input="$(branch_from_url "$repo_input" || true)"
 
-if [[ -z "$author" ]]; then
+if [[ "$all_authors" -eq 1 ]]; then
+  author=""
+  author_source="--all-authors"
+  author_filter="none"
+  author_filter_source="--all-authors"
+elif [[ -z "$author" ]]; then
   if [[ -n "$author_from_input" ]]; then
     author="$author_from_input"
     author_source="input URL author query"
@@ -144,8 +158,12 @@ if [[ -z "$author" ]]; then
     author="$(gh api user --jq .login)"
     author_source="current GitHub login"
   fi
+  author_filter="$author"
+  author_filter_source="$author_source"
 else
   author_source="--author"
+  author_filter="$author"
+  author_filter_source="$author_source"
 fi
 
 if [[ -z "$branch" ]]; then
@@ -160,23 +178,37 @@ else
   branch_source="--branch"
 fi
 
+if [[ "$author_filter" == "none" ]]; then
+  commit_name_part="commits-all-authors"
+else
+  commit_name_part="commits-$author_filter"
+fi
+
 if [[ -z "$name" ]]; then
   if [[ "$branch_source" == "--branch" || "$branch_source" == "input branch URL" ]]; then
-    name="$repo_name-$(filename_part "$branch")-commits-$author"
+    name="$repo_name-$(filename_part "$branch")-$commit_name_part"
   else
-    name="$repo_name-commits-$author"
+    name="$repo_name-$commit_name_part"
   fi
 fi
 
+commit_api_path="repos/$repo_full_name/commits?sha=$branch&per_page=100"
+if [[ -n "$author" ]]; then
+  commit_api_path="repos/$repo_full_name/commits?sha=$branch&author=$author&per_page=100"
+fi
+
 commit_count="$(
-  gh api "repos/$repo_full_name/commits?sha=$branch&author=$author&per_page=100" \
+  gh api "$commit_api_path" \
     --paginate \
     --jq '.[].sha' |
   wc -l |
   tr -d ' '
 )"
 
-target_url="https://github.com/$repo_full_name/commits/$branch/?author=$author"
+target_url="https://github.com/$repo_full_name/commits/$branch"
+if [[ -n "$author" ]]; then
+  target_url="$target_url/?author=$author"
+fi
 repo_out_dir="$out_dir/$repo_name"
 merged_pdf="$repo_out_dir/${name%.pdf}-all-pages.pdf"
 audit_file="$repo_out_dir/${name%.pdf}-audit.txt"
@@ -192,8 +224,8 @@ if [[ "$dry_run" -eq 1 ]]; then
   echo "Repository: $repo_full_name"
   echo "Branch: $branch"
   echo "Branch source: $branch_source"
-  echo "Author: $author"
-  echo "Author source: $author_source"
+  echo "Author filter: $author_filter"
+  echo "Author filter source: $author_filter_source"
   echo "Commit count: $commit_count"
   echo "Target URL: $target_url"
   echo "Rendered Next pages: resolved during export"
@@ -248,8 +280,8 @@ echo "==> GitHub commits export audit"
 echo "Repository: $repo_full_name"
 echo "Branch: $branch"
 echo "Branch source: $branch_source"
-echo "Author: $author"
-echo "Author source: $author_source"
+echo "Author filter: $author_filter"
+echo "Author filter source: $author_filter_source"
 echo "Commit count: $commit_count"
 echo "Chrome windows before: $before_windows"
 echo "Chrome windows after: $after_windows"
@@ -265,7 +297,7 @@ if [[ -f "$merged_pdf" ]]; then
 
   missing="$(
     comm -23 \
-      <(gh api "repos/$repo_full_name/commits?sha=$branch&author=$author&per_page=100" --paginate --jq '.[].sha[0:7]' | sort -u) \
+      <(gh api "$commit_api_path" --paginate --jq '.[].sha[0:7]' | sort -u) \
       <(pdftotext "$merged_pdf" - | rg -o '[0-9a-f]{7}' | sort -u) || true
   )"
 
@@ -295,8 +327,8 @@ fi
   echo "Repository: $repo_full_name"
   echo "Branch: $branch"
   echo "Branch source: $branch_source"
-  echo "Author: $author"
-  echo "Author source: $author_source"
+  echo "Author filter: $author_filter"
+  echo "Author filter source: $author_filter_source"
   echo "Commit count: $commit_count"
   echo "Target URL: $target_url"
   echo "Output directory: $repo_out_dir"
@@ -329,8 +361,8 @@ JSON_FILE="$audit_json_file" \
 REPO_FULL_NAME="$repo_full_name" \
 BRANCH="$branch" \
 BRANCH_SOURCE="$branch_source" \
-AUTHOR="$author" \
-AUTHOR_SOURCE="$author_source" \
+AUTHOR_FILTER="$author_filter" \
+AUTHOR_FILTER_SOURCE="$author_filter_source" \
 COMMIT_COUNT="$commit_count" \
 TARGET_URL="$target_url" \
 OUTPUT_DIRECTORY="$repo_out_dir" \
@@ -359,8 +391,9 @@ data = {
     "repository": os.environ["REPO_FULL_NAME"],
     "branch": os.environ["BRANCH"],
     "branch_source": os.environ["BRANCH_SOURCE"],
-    "author": os.environ["AUTHOR"],
-    "author_source": os.environ["AUTHOR_SOURCE"],
+    "author": None if os.environ["AUTHOR_FILTER"] == "none" else os.environ["AUTHOR_FILTER"],
+    "author_filter": None if os.environ["AUTHOR_FILTER"] == "none" else os.environ["AUTHOR_FILTER"],
+    "author_filter_source": os.environ["AUTHOR_FILTER_SOURCE"],
     "commit_count": as_int("COMMIT_COUNT"),
     "target_url": os.environ["TARGET_URL"],
     "output_directory": os.environ["OUTPUT_DIRECTORY"],
