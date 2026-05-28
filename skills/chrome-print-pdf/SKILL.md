@@ -34,7 +34,7 @@ pdftotext -v
 
 ## Workflow
 
-1. Determine the full export scope before printing. For GitHub PR/search result pages, identify the number of result pages and export every page.
+1. Determine the full export scope before printing. For GitHub PR/search result pages, prefer `--auto-github-pages` when `gh` can access the repository; otherwise identify the number of result pages and export every page.
 2. Open the target URL in the user's signed-in Google Chrome.
 3. Wait for the page to load and confirm the title/URL if needed.
 4. Open print preview with `Cmd-P`.
@@ -50,7 +50,7 @@ For GitHub PR/search pagination, do not assume the user-provided `page=1` is the
 
 Preferred ways to determine page count:
 
-- If `gh` can access the repository, use the GitHub API or search results to count matching items. GitHub PR lists normally show 25 items per page, so `ceil(count / 25)` gives the browser page range.
+- If `gh` can access the repository, use `scripts/print_chrome_pdf.sh --auto-github-pages` for GitHub PR list URLs with a `q=` filter. The script queries GitHub search for `repo:owner/repo <decoded q>` and uses the result count to set `--pages` internally. GitHub PR lists normally show 25 items per page, so `ceil(count / 25)` gives the browser page range.
 - If the page is public, inspect the rendered or fetched pagination controls and use the last page number.
 - If unauthenticated `curl` returns 404 or incomplete content, treat the page as private/session-dependent and use Chrome login state or `gh`; do not rely on headless browser output or public fetches for the final scope.
 
@@ -88,7 +88,7 @@ GitHub search pagination:
   --url "https://github.com/owner/repo/pulls?q=is%3Apr+is%3Aclosed+author%3Auser" \
   --out-dir "$HOME/Documents/dev-pdf" \
   --name "repo-prs" \
-  --pages 1-3 \
+  --auto-github-pages \
   --merge \
   --repo-subdir
 ```
@@ -100,7 +100,7 @@ gh api 'repos/owner/repo/pulls?state=closed&per_page=100' --paginate \
   --jq '[.[] | select(.user.login=="user")] | length'
 ```
 
-Then export `1-ceil(count/25)` with `--pages`.
+Then export `1-ceil(count/25)` with `--pages` only if `--auto-github-pages` is unavailable or the URL is not a normal GitHub PR list.
 
 Manual print-preview Save override:
 
@@ -135,6 +135,13 @@ pdftotext "$file" - | rg -m 8 'expected text|repo name|query|result count'
 ```
 
 For GitHub PR lists, verify the repository name, query text, and expected count such as `0 Open 63 Closed`. Also verify that the per-page PDFs are not all the same page by checking the saved page URLs or distinct text from each page when possible.
+
+When the script can identify a GitHub PR list, it prints a validation block after export:
+
+- repository and decoded query
+- expected result count when `--auto-github-pages` was used
+- matching text from every generated PDF
+- a per-page distinctness sample using the first few PR numbers from each page
 
 Merged PDFs created by `pdfunite` may not preserve `Title`, `Creator`, or `CreationDate`. That is acceptable if `pdfinfo` reports the expected page count and `pdftotext` verifies the repository, query, and result count.
 

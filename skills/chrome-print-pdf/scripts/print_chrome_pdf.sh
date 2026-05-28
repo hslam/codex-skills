@@ -4,11 +4,11 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M] [--merge] [--repo-subdir | --subdir NAME] [--save-click X,Y]
+  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M | --auto-github-pages] [--merge] [--repo-subdir | --subdir NAME] [--save-click X,Y]
 
 Examples:
   print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs.pdf
-  print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs --pages 1-3 --merge --repo-subdir
+  print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs --auto-github-pages --merge --repo-subdir
 EOF
 }
 
@@ -20,6 +20,10 @@ merge=0
 repo_subdir=0
 subdir=""
 save_click=""
+auto_github_pages=0
+github_result_count=""
+github_query=""
+github_repo_full_name=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     --out-dir) out_dir="$2"; shift 2 ;;
     --name) name="$2"; shift 2 ;;
     --pages) pages="$2"; shift 2 ;;
+    --auto-github-pages) auto_github_pages=1; shift ;;
     --merge) merge=1; shift ;;
     --repo-subdir) repo_subdir=1; shift ;;
     --subdir) subdir="$2"; shift 2 ;;
@@ -64,6 +69,80 @@ derive_github_repo_name() {
   [[ -n "$owner" && -n "$repo" ]] || return 1
   printf '%s\n' "$repo"
 }
+
+derive_github_repo_full_name() {
+  local raw_url="$1"
+  local path_part="${raw_url#*github.com/}"
+  [[ "$path_part" != "$raw_url" ]] || return 1
+  path_part="${path_part%%\?*}"
+  path_part="${path_part%%#*}"
+  local owner=""
+  local repo=""
+  IFS=/ read -r owner repo _ <<< "$path_part"
+  repo="${repo%.git}"
+  [[ -n "$owner" && -n "$repo" ]] || return 1
+  printf '%s/%s\n' "$owner" "$repo"
+}
+
+url_decode() {
+  local encoded="${1//+/ }"
+  printf '%b' "${encoded//%/\\x}"
+}
+
+query_param() {
+  local raw_url="$1"
+  local key="$2"
+  local query="${raw_url#*\?}"
+  [[ "$query" != "$raw_url" ]] || return 1
+  query="${query%%#*}"
+  local part=""
+  IFS='&' read -ra parts <<< "$query"
+  for part in "${parts[@]}"; do
+    if [[ "$part" == "$key="* ]]; then
+      url_decode "${part#*=}"
+      return
+    fi
+  done
+  return 1
+}
+
+infer_github_pages() {
+  command -v gh >/dev/null
+  github_repo_full_name="$(derive_github_repo_full_name "$url")" || {
+    echo "Could not derive GitHub owner/repo from URL." >&2
+    exit 2
+  }
+  github_query="$(query_param "$url" q)" || {
+    echo "Could not find q= query parameter in GitHub PR URL." >&2
+    exit 2
+  }
+  if [[ "$github_query" != *"is:pr"* ]]; then
+    github_query="is:pr $github_query"
+  fi
+
+  local search_query="repo:$github_repo_full_name $github_query"
+  github_result_count="$(gh api -X GET search/issues -f q="$search_query" --jq '.total_count')"
+  [[ "$github_result_count" =~ ^[0-9]+$ ]] || {
+    echo "Could not infer GitHub result count for query: $search_query" >&2
+    exit 1
+  }
+
+  local page_count=$(( (github_result_count + 24) / 25 ))
+  if [[ "$page_count" -lt 1 ]]; then
+    page_count=1
+  fi
+  pages="1-$page_count"
+  echo "==> Inferred GitHub PR result count: $github_result_count"
+  echo "==> Inferred GitHub page range: $pages"
+}
+
+if [[ "$auto_github_pages" -eq 1 ]]; then
+  if [[ -n "$pages" ]]; then
+    echo "Use only one of --pages or --auto-github-pages." >&2
+    exit 2
+  fi
+  infer_github_pages
+fi
 
 if [[ -n "$subdir" && "$repo_subdir" -eq 1 ]]; then
   echo "Use only one of --repo-subdir or --subdir." >&2
@@ -392,3 +471,42 @@ if [[ "$merge" -eq 1 ]]; then
   echo "==> Merged: $merged"
   pdfinfo "$merged" | grep -E '^(Title|Pages|Producer)' || true
 fi
+
+validate_github_pr_exports() {
+  [[ -n "$github_repo_full_name" ]] || github_repo_full_name="$(derive_github_repo_full_name "$url" 2>/dev/null || true)"
+  [[ -n "$github_query" ]] || github_query="$(query_param "$url" q 2>/dev/null || true)"
+  [[ -n "$github_repo_full_name" && -n "$github_query" ]] || return 0
+
+  echo "==> GitHub PR export validation"
+  echo "Repository: $github_repo_full_name"
+  echo "Query: $github_query"
+  if [[ -n "$github_result_count" ]]; then
+    echo "Expected result count: $github_result_count"
+  fi
+
+  local f=""
+  local sample=""
+  for f in "${generated[@]}"; do
+    echo "-- $(basename "$f")"
+    pdftotext "$f" - | grep -F -m 3 "$github_repo_full_name" || true
+    pdftotext "$f" - | grep -F -m 3 "$github_query" || true
+    pdftotext "$f" - | grep -E -m 10 '[0-9]+ Open [0-9]+ Closed|#[0-9]+ by ' || true
+  done
+
+  if [[ "${#generated[@]}" -gt 1 ]]; then
+    echo "==> Per-page distinctness sample"
+    for f in "${generated[@]}"; do
+      sample="$(pdftotext "$f" - | grep -E -m 3 '#[0-9]+ by ' | tr '\n' ' ' || true)"
+      printf '%s: %s\n' "$(basename "$f")" "$sample"
+    done
+  fi
+
+  if [[ "$merge" -eq 1 && -n "${merged:-}" ]]; then
+    echo "-- $(basename "$merged")"
+    pdftotext "$merged" - | grep -F -m 3 "$github_repo_full_name" || true
+    pdftotext "$merged" - | grep -F -m 3 "$github_query" || true
+    pdftotext "$merged" - | grep -E -m 10 '[0-9]+ Open [0-9]+ Closed|#[0-9]+ by ' || true
+  fi
+}
+
+validate_github_pr_exports
