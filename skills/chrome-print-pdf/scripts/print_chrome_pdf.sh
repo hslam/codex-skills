@@ -26,6 +26,7 @@ resume=0
 auto_github_pages=0
 auto_github_next_pages=0
 auto_next_page_limit=200
+page_settle_seconds="${CHROME_PRINT_PAGE_SETTLE_SECONDS:-0.8}"
 github_result_count=""
 github_query=""
 github_repo_full_name=""
@@ -71,6 +72,11 @@ fi
 
 if [[ ! "$auto_next_page_limit" =~ ^[0-9]+$ || "$auto_next_page_limit" -lt 1 ]]; then
   echo "--auto-next-page-limit must be a positive integer." >&2
+  exit 2
+fi
+
+if [[ ! "$page_settle_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "CHROME_PRINT_PAGE_SETTLE_SECONDS must be a non-negative number." >&2
   exit 2
 fi
 
@@ -318,12 +324,20 @@ wait_for_chrome_print_window() {
   return 1
 }
 
+wiggle_click() {
+  local point="$1"
+  local x=""
+  local y=""
+  IFS=, read -r x y <<< "$point"
+  cliclick m:"$x,$((y - 28))" w:200 m:"$point" w:200 c:.
+}
+
 press_chrome_print_save() {
   local click_point="$save_click"
 
   if [[ -n "$click_point" ]]; then
     echo "==> Pressing Chrome Save at override $click_point"
-    cliclick m:"$click_point" w:300 dd:. w:200 du:.
+    wiggle_click "$click_point"
     return
   fi
 
@@ -348,7 +362,7 @@ press_chrome_print_save() {
     IFS=, read -r x y w h <<< "$bounds"
     click_point="$((x + w - 53)),$((y + h - 42))"
     echo "==> Pressing Chrome Save at estimated $click_point (attempt $attempt)"
-    cliclick m:"$click_point" w:300 dd:. w:200 du:.
+    wiggle_click "$click_point"
     sleep 1.5
     if macos_save_dialog_visible; then
       return
@@ -657,7 +671,7 @@ tell application "Google Chrome"
 end tell
 OSA
     then
-      sleep 0.8
+      sleep "$page_settle_seconds"
       return
     fi
     sleep 0.25
