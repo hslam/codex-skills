@@ -55,7 +55,7 @@ For GitHub PR/search/commits pagination, do not assume the user-provided first U
 Preferred ways to determine page count:
 
 - If `gh` can access the repository, use `scripts/print_chrome_pdf.sh --auto-github-pages` for GitHub PR list URLs with a `q=` filter. The script queries GitHub search for `repo:owner/repo <decoded q>` and uses the result count to set `--pages` internally. GitHub PR lists normally show 25 items per page, so `ceil(count / 25)` gives the browser page range.
-- For GitHub commits pages, preserve a branch already present in a URL such as `https://github.com/owner/repo/commits/sharding`; only resolve the default branch with `gh api repos/owner/repo --jq .default_branch` when neither `--branch` nor the input URL specifies a branch. Use `--auto-github-next-pages`; GitHub commits pages use rendered `Next` cursor URLs such as `after=<sha>+<n>`, not stable `page=N` URLs.
+- For GitHub commits pages, preserve a branch already present in a URL such as `https://github.com/owner/repo/commits/sharding` or `https://github.com/owner/repo/tree/sharding`; only resolve the default branch with `gh api repos/owner/repo --jq .default_branch` when neither `--branch` nor the input URL specifies a branch. Use `--auto-github-next-pages`; GitHub commits pages use rendered `Next` cursor URLs such as `after=<sha>+<n>`, not stable `page=N` URLs.
 - To estimate scope for commits-by-author exports, use `gh api 'repos/owner/repo/commits?sha=<branch>&author=<login>&per_page=100' --paginate --jq '.[].sha' | wc -l`. The rendered page count should still come from Chrome's `Next` links.
 - If the page is public, inspect the rendered or fetched pagination controls and use the last page number.
 - If unauthenticated `curl` returns 404 or incomplete content, treat the page as private/session-dependent and use Chrome login state or `gh`; do not rely on headless browser output or public fetches for the final scope.
@@ -118,7 +118,7 @@ GitHub commits-by-author export:
 
 Use `--author USER`, `--branch BRANCH`, or `--name NAME` only when overriding the current GitHub login, repository default branch, or output basename. Use `--resume` after an interrupted export to reuse valid per-page PDFs.
 
-When the `--repo` value is a commits URL, `export_github_commits_pdf.sh` preserves `author=` from the URL and the `/commits/<branch>` path unless explicit `--author` or `--branch` flags override them. Branch-specific inputs default to names like `repo-branch-commits-user` so they do not overwrite default-branch exports.
+When the `--repo` value is a GitHub commits or tree URL, `export_github_commits_pdf.sh` preserves `author=` from the URL and the `/commits/<branch>` or `/tree/<branch>` path unless explicit `--author` or `--branch` flags override them. Branch-specific inputs default to names like `repo-branch-commits-user` so they do not overwrite default-branch exports.
 
 Lower-level GitHub commits pagination:
 

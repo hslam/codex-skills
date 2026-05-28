@@ -10,6 +10,7 @@ Examples:
   export_github_commits_pdf.sh --repo tidbcloud/ffs --out-dir /tmp/exports
   export_github_commits_pdf.sh --repo https://github.com/ngaut/rfs --out-dir /tmp/exports --author hslam
   export_github_commits_pdf.sh --repo https://github.com/pingcap/badger/commits/sharding --out-dir /tmp/exports
+  export_github_commits_pdf.sh --repo https://github.com/ngaut/unistore/tree/sharding --out-dir /tmp/exports
 EOF
 }
 
@@ -96,7 +97,7 @@ normalize_repo() {
   printf '%s/%s\n' "$owner" "$repo"
 }
 
-commits_branch_from_url() {
+branch_from_url() {
   local raw
   raw="$(github_path "$1")"
   raw="${raw%.git}"
@@ -105,10 +106,13 @@ commits_branch_from_url() {
   local section=""
   local branch_path=""
   IFS=/ read -r owner repo section branch_path <<< "$raw"
-  if [[ "$section" != "commits" || -z "$branch_path" ]]; then
+  if [[ "$section" != "commits" && "$section" != "tree" ]]; then
     return 1
   fi
-  branch_path="${raw#"$owner/$repo/commits/"}"
+  if [[ -z "$branch_path" ]]; then
+    return 1
+  fi
+  branch_path="${raw#"$owner/$repo/$section/"}"
   branch_path="${branch_path%/}"
   [[ -n "$branch_path" ]] || return 1
   url_decode "$branch_path"
@@ -121,7 +125,7 @@ filename_part() {
 repo_full_name="$(normalize_repo "$repo_input")"
 repo_name="${repo_full_name##*/}"
 author_from_input="$(query_param "$repo_input" author || true)"
-branch_from_input="$(commits_branch_from_url "$repo_input" || true)"
+branch_from_input="$(branch_from_url "$repo_input" || true)"
 
 if [[ -z "$author" ]]; then
   if [[ -n "$author_from_input" ]]; then
@@ -138,7 +142,7 @@ fi
 if [[ -z "$branch" ]]; then
   if [[ -n "$branch_from_input" ]]; then
     branch="$branch_from_input"
-    branch_source="input commits URL"
+    branch_source="input branch URL"
   else
     branch="$(gh api "repos/$repo_full_name" --jq .default_branch)"
     branch_source="repository default branch"
@@ -148,7 +152,7 @@ else
 fi
 
 if [[ -z "$name" ]]; then
-  if [[ "$branch_source" == "--branch" || "$branch_source" == "input commits URL" ]]; then
+  if [[ "$branch_source" == "--branch" || "$branch_source" == "input branch URL" ]]; then
     name="$repo_name-$(filename_part "$branch")-commits-$author"
   else
     name="$repo_name-commits-$author"
