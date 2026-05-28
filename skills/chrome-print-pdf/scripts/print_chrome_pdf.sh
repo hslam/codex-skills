@@ -4,11 +4,11 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M] [--merge]
+  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M] [--merge] [--repo-subdir | --subdir NAME]
 
 Examples:
   print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs.pdf
-  print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs --pages 1-3 --merge
+  print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "$HOME/Documents/dev-pdf" --name repo-prs --pages 1-3 --merge --repo-subdir
 EOF
 }
 
@@ -17,6 +17,8 @@ out_dir=""
 name=""
 pages=""
 merge=0
+repo_subdir=0
+subdir=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -25,6 +27,8 @@ while [[ $# -gt 0 ]]; do
     --name) name="$2"; shift 2 ;;
     --pages) pages="$2"; shift 2 ;;
     --merge) merge=1; shift ;;
+    --repo-subdir) repo_subdir=1; shift ;;
+    --subdir) subdir="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
   esac
@@ -39,6 +43,36 @@ command -v cliclick >/dev/null
 command -v osascript >/dev/null
 command -v pdfinfo >/dev/null
 command -v pdftotext >/dev/null
+
+derive_github_repo_name() {
+  local raw_url="$1"
+  local path_part="${raw_url#*github.com/}"
+  [[ "$path_part" != "$raw_url" ]] || return 1
+  path_part="${path_part%%\?*}"
+  path_part="${path_part%%#*}"
+  local owner=""
+  local repo=""
+  IFS=/ read -r owner repo _ <<< "$path_part"
+  repo="${repo%.git}"
+  [[ -n "$owner" && -n "$repo" ]] || return 1
+  printf '%s\n' "$repo"
+}
+
+if [[ -n "$subdir" && "$repo_subdir" -eq 1 ]]; then
+  echo "Use only one of --repo-subdir or --subdir." >&2
+  exit 2
+fi
+
+if [[ "$repo_subdir" -eq 1 ]]; then
+  subdir="$(derive_github_repo_name "$url")" || {
+    echo "Could not derive GitHub repo name from URL. Use --subdir NAME instead." >&2
+    exit 2
+  }
+fi
+
+if [[ -n "$subdir" ]]; then
+  out_dir="$out_dir/$subdir"
+fi
 
 mkdir -p "$out_dir"
 

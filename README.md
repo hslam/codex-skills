@@ -33,6 +33,14 @@ Install one skill manually:
 rsync -a skills/chrome-print-pdf/ "$HOME/.codex/skills/chrome-print-pdf/"
 ```
 
+## Output Convention
+
+Generated artifacts should live outside this repository. For repeated exports from one source repo, create a matching folder under the output directory, for example:
+
+```text
+$HOME/Documents/dev-pdf/tidb-operator-cse/
+```
+
 ## Validate
 
 Validate a skill:
