@@ -9,6 +9,7 @@ Usage:
 Examples:
   export_github_prs_pdf.sh --repo tidbcloud/tidb-operator-cse --out-dir /tmp/exports
   export_github_prs_pdf.sh --repo https://github.com/tidbcloud/tidb-operator-cse --out-dir /tmp/exports --author hslam
+  export_github_prs_pdf.sh --repo "https://github.com/tidbcloud/tidb-operator-cse/pulls?page=1&q=is%3Apr+is%3Aclosed+author%3Ahslam" --print-url
   export_github_prs_pdf.sh --repo https://github.com/tidbcloud/tidb-operator-cse --print-url
 EOF
 }
@@ -21,13 +22,15 @@ name=""
 resume=0
 save_click=""
 print_url=0
+author_provided=0
+state_provided=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo) repo_input="$2"; shift 2 ;;
     --out-dir) out_dir="$2"; shift 2 ;;
-    --author) author="$2"; shift 2 ;;
-    --state) state="$2"; shift 2 ;;
+    --author) author="$2"; author_provided=1; shift 2 ;;
+    --state) state="$2"; state_provided=1; shift 2 ;;
     --name) name="$2"; shift 2 ;;
     --resume) resume=1; shift ;;
     --save-click) save_click="$2"; shift 2 ;;
@@ -83,6 +86,28 @@ normalize_repo() {
   printf '%s/%s\n' "$owner" "$repo"
 }
 
+url_decode() {
+  local encoded="${1//+/ }"
+  printf '%b' "${encoded//%/\\x}"
+}
+
+query_param() {
+  local raw_url="$1"
+  local key="$2"
+  local query="${raw_url#*\?}"
+  [[ "$query" != "$raw_url" ]] || return 1
+  query="${query%%#*}"
+  local part=""
+  IFS='&' read -ra parts <<< "$query"
+  for part in "${parts[@]}"; do
+    if [[ "$part" == "$key="* ]]; then
+      url_decode "${part#*=}"
+      return
+    fi
+  done
+  return 1
+}
+
 filename_part() {
   sed -E 's#[^A-Za-z0-9._-]+#-#g; s#-+#-#g; s#^-##; s#-$##' <<< "$1"
 }
@@ -106,12 +131,35 @@ url_encode_query() {
 
 repo_full_name="$(normalize_repo "$repo_input")"
 repo_name="${repo_full_name##*/}"
+input_query="$(query_param "$repo_input" q || true)"
+input_author=""
+input_state=""
+if [[ "$input_query" =~ (^|[[:space:]])author:([^[:space:]]+) ]]; then
+  input_author="${BASH_REMATCH[2]}"
+fi
+if [[ "$input_query" =~ (^|[[:space:]])is:(open|closed)([[:space:]]|$) ]]; then
+  input_state="${BASH_REMATCH[2]}"
+fi
 
 if [[ -z "$author" ]]; then
-  author="$(gh api user --jq .login)"
-  author_source="current GitHub login"
+  if [[ -n "$input_author" ]]; then
+    author="$input_author"
+    author_source="input URL q"
+  else
+    author="$(gh api user --jq .login)"
+    author_source="current GitHub login"
+  fi
 else
   author_source="--author"
+fi
+
+if [[ "$state_provided" -eq 0 && -n "$input_state" ]]; then
+  state="$input_state"
+  state_source="input URL q"
+elif [[ "$state_provided" -eq 1 ]]; then
+  state_source="--state"
+else
+  state_source="default"
 fi
 
 if [[ "$state" == "all" ]]; then
@@ -120,6 +168,18 @@ if [[ "$state" == "all" ]]; then
 else
   github_query="is:pr is:$state author:$author"
   state_label="$state"
+fi
+query_source="generated"
+
+if [[ -n "$input_query" && "$author_provided" -eq 0 && "$state_provided" -eq 0 ]]; then
+  github_query="$input_query"
+  query_source="input URL q"
+  if [[ "$github_query" != *"is:pr"* ]]; then
+    github_query="is:pr $github_query"
+  fi
+  if [[ -z "$input_state" ]]; then
+    state_label="search"
+  fi
 fi
 
 encoded_query="$(url_encode_query "$github_query")"
@@ -144,7 +204,9 @@ if [[ "$print_url" -eq 1 ]]; then
   echo "Author: $author"
   echo "Author source: $author_source"
   echo "State: $state"
+  echo "State source: $state_source"
   echo "Query: $github_query"
+  echo "Query source: $query_source"
   echo "Result count: $result_count"
   echo "Page range: 1-$page_count"
   echo "Target URL: $target_url"
@@ -190,9 +252,12 @@ echo "Repository: $repo_full_name"
 echo "Author: $author"
 echo "Author source: $author_source"
 echo "State: $state"
+echo "State source: $state_source"
 echo "Query: $github_query"
+echo "Query source: $query_source"
 echo "Result count: $result_count"
 echo "Page range: 1-$page_count"
+echo "Target URL: $target_url"
 echo "Chrome windows before: $before_windows"
 echo "Chrome windows after: $after_windows"
 
@@ -220,7 +285,9 @@ fi
   echo "Author: $author"
   echo "Author source: $author_source"
   echo "State: $state"
+  echo "State source: $state_source"
   echo "Query: $github_query"
+  echo "Query source: $query_source"
   echo "Result count: $result_count"
   echo "Page range: 1-$page_count"
   echo "Target URL: $target_url"

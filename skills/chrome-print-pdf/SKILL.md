@@ -118,6 +118,8 @@ GitHub closed PRs by author from a repository URL:
 
 Use `--author USER`, `--state open|closed|all`, or `--name NAME` only when overriding the current GitHub login, default `closed` PR state, or output basename. Use `--print-url` when you only need to verify the generated PR URL and page range.
 
+When the `--repo` value is already a GitHub `pulls` URL with a `q=` parameter, `export_github_prs_pdf.sh` preserves that query unless explicit `--author` or `--state` flags override it.
+
 GitHub commits-by-author export:
 
 ```bash
@@ -202,7 +204,7 @@ pdfinfo "$file" | rg '^(Title|Pages|Creator|Producer|CreationDate)' || true
 pdftotext "$file" - | rg -m 8 'expected text|repo name|query|result count'
 ```
 
-For GitHub PR lists, verify the repository name, query text, and expected count such as `0 Open 63 Closed`. Also verify that the per-page PDFs are not all the same page by checking the saved page URLs or distinct text from each page when possible. When using `export_github_prs_pdf.sh`, use its terminal audit block and saved `*-audit.txt` file as the primary validation: repository, author, state, query, result count, page range, Chrome window count before/after, merged PDF metadata, and per-page PDF count.
+For GitHub PR lists, verify the repository name, query text, and expected count such as `0 Open 63 Closed`. Also verify that the per-page PDFs are not all the same page by checking the saved page URLs or distinct text from each page when possible. When using `export_github_prs_pdf.sh`, use its terminal audit block and saved `*-audit.txt` file as the primary validation: repository, author, author source, state, state source, query, query source, target URL, result count, page range, Chrome window count before/after, merged PDF metadata, and per-page PDF count.
 
 For GitHub commits exports, verify the API count, resolved branch, author login, rendered page count, and first/last page samples. Compare API page boundaries when useful, for example first source page `ae13622 ... 10dd66a` and last source page `a8fa6b3 ... bcc088c`.
 
