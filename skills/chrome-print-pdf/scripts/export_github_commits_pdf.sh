@@ -93,10 +93,12 @@ commit_count="$(
 target_url="https://github.com/$repo_full_name/commits/$branch/?author=$author"
 repo_out_dir="$out_dir/$repo_name"
 merged_pdf="$repo_out_dir/${name%.pdf}-all-pages.pdf"
+audit_file="$repo_out_dir/${name%.pdf}-audit.txt"
 
 if [[ "$resume" -eq 0 ]]; then
   mkdir -p "$repo_out_dir"
   find "$repo_out_dir" -maxdepth 1 -type f -name "${name%.pdf}*.pdf" -delete
+  rm -f "$audit_file"
 fi
 
 before_windows="$(osascript -e 'tell application "Google Chrome" to return count of windows')"
@@ -130,8 +132,14 @@ echo "Commit count: $commit_count"
 echo "Chrome windows before: $before_windows"
 echo "Chrome windows after: $after_windows"
 
+pdf_metadata=""
+missing=""
+missing_sha_count="not_checked"
 if [[ -f "$merged_pdf" ]]; then
-  pdfinfo "$merged_pdf" | rg '^(Title|Pages|Creator|Producer|CreationDate)' || true
+  pdf_metadata="$(pdfinfo "$merged_pdf" | rg '^(Title|Pages|Creator|Producer|CreationDate)' || true)"
+  if [[ -n "$pdf_metadata" ]]; then
+    printf '%s\n' "$pdf_metadata"
+  fi
 
   missing="$(
     comm -23 \
@@ -140,11 +148,55 @@ if [[ -f "$merged_pdf" ]]; then
   )"
 
   if [[ -z "$missing" ]]; then
+    missing_sha_count=0
     echo "missing_sha_count=0"
   else
-    echo "missing_sha_count=$(printf '%s\n' "$missing" | wc -l | tr -d ' ')"
+    missing_sha_count="$(printf '%s\n' "$missing" | wc -l | tr -d ' ')"
+    echo "missing_sha_count=$missing_sha_count"
     printf '%s\n' "$missing"
   fi
 
   echo "Merged PDF: $merged_pdf"
+else
+  echo "Merged PDF not found: $merged_pdf" >&2
 fi
+
+per_page_pdf_list="$(find "$repo_out_dir" -maxdepth 1 -type f -name "${name%.pdf}-page-*.pdf" -print | sort || true)"
+per_page_pdf_count=0
+if [[ -n "$per_page_pdf_list" ]]; then
+  per_page_pdf_count="$(printf '%s\n' "$per_page_pdf_list" | wc -l | tr -d ' ')"
+fi
+
+{
+  echo "GitHub commits export audit"
+  echo "Generated at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+  echo "Repository: $repo_full_name"
+  echo "Branch: $branch"
+  echo "Author: $author"
+  echo "Commit count: $commit_count"
+  echo "Target URL: $target_url"
+  echo "Output directory: $repo_out_dir"
+  echo "Merged PDF: $merged_pdf"
+  echo "Merged PDF exists: $([[ -f "$merged_pdf" ]] && echo yes || echo no)"
+  echo "Per-page PDF count: $per_page_pdf_count"
+  echo "Chrome windows before: $before_windows"
+  echo "Chrome windows after: $after_windows"
+  echo "missing_sha_count=$missing_sha_count"
+  if [[ -n "$pdf_metadata" ]]; then
+    echo
+    echo "PDF metadata:"
+    printf '%s\n' "$pdf_metadata"
+  fi
+  if [[ -n "$missing" ]]; then
+    echo
+    echo "Missing short SHAs:"
+    printf '%s\n' "$missing"
+  fi
+  if [[ -n "$per_page_pdf_list" ]]; then
+    echo
+    echo "Per-page PDFs:"
+    printf '%s\n' "$per_page_pdf_list"
+  fi
+} > "$audit_file"
+
+echo "Audit file: $audit_file"

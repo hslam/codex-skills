@@ -36,7 +36,7 @@ pdftotext -v
 
 ## Workflow
 
-1. Determine the full export scope before printing. For GitHub commits pages, prefer `export_github_commits_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, default branch, rendered Next pages, merge output, window count, and SHA validation. For GitHub PR/search result pages, prefer `print_chrome_pdf.sh --auto-github-pages` when `gh` can access the repository. Otherwise identify every page URL and export every page.
+1. Determine the full export scope before printing. For GitHub commits pages, prefer `export_github_commits_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, default branch, rendered Next pages, merge output, window count, SHA validation, and writes a `*-audit.txt` file next to the merged PDF. For GitHub PR/search result pages, prefer `print_chrome_pdf.sh --auto-github-pages` when `gh` can access the repository. Otherwise identify every page URL and export every page.
 2. Open the target URL in a new tab of the existing signed-in Chrome window so existing browser pages are not overwritten. Only create a new Chrome window when Chrome has no open windows. For multi-page exports, reuse that export tab for later pages.
 3. Wait for the page to load and confirm the title/URL if needed.
 4. Open print preview with `Cmd-P`. The script falls back to Chrome's `File -> Print...` menu when `Cmd-P` does not surface a print preview window.
@@ -194,7 +194,7 @@ For GitHub PR lists, verify the repository name, query text, and expected count 
 
 For GitHub commits exports, verify the API count, resolved branch, author login, rendered page count, and first/last page samples. Compare API page boundaries when useful, for example first source page `ae13622 ... 10dd66a` and last source page `a8fa6b3 ... bcc088c`.
 
-When using `export_github_commits_pdf.sh`, use its audit block as the primary validation: repository, branch, author, commit count, Chrome window count before/after, merged PDF metadata, and `missing_sha_count=0`.
+When using `export_github_commits_pdf.sh`, use its terminal audit block and saved `*-audit.txt` file as the primary validation: repository, branch, author, commit count, Chrome window count before/after, merged PDF metadata, per-page PDF count, and `missing_sha_count=0`.
 
 For merged GitHub list PDFs, verify more than the page count: sample text from the first source page and the last source page, such as representative PR numbers, so the merged file is known to contain the full range. For paginated exports, also check that each page PDF contains the expected `page=N` URL text when Chrome includes it in the printed output.
 
@@ -216,6 +216,7 @@ Keep the final response concise but auditable. Include:
 
 - output directory
 - merged PDF path
+- audit file path for GitHub commits exports
 - per-page PDF location or count
 - GitHub result count and page range when applicable
 - merged PDF page count
