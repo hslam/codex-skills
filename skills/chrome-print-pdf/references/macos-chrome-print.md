@@ -32,7 +32,9 @@ screencapture -x /tmp/state.png
 
 Chrome print preview's blue Save is drawn inside Chrome. AppleScript often cannot see it in the accessibility tree. The script therefore targets the button relative to the print window bounds and uses a slow `cliclick` down/up sequence instead of a plain click.
 
-The macOS Save dialog is a native dialog and is usually visible to Accessibility. If the script cannot click its Save button by label, use this manual recovery:
+`Cmd-P` can occasionally fail to surface the print preview even when the target tab is frontmost. In that case, use Chrome's menu item `File -> Print...`; it often succeeds because it goes through the native menu system rather than a keyboard shortcut routed through the web page.
+
+The macOS Save dialog is a native dialog and is usually visible to Accessibility. It may attach as a sheet to the print preview window instead of Chrome `window 1`, so inspect all Chrome windows and sheets before deciding it is missing. If the script cannot click its Save button by label, use this manual recovery:
 
 1. Press `Cmd-Shift-G`.
 2. Type the directory path.

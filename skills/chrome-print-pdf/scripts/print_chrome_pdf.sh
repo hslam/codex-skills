@@ -251,6 +251,27 @@ end tell
 OSA
 }
 
+open_chrome_print_preview() {
+  osascript -e 'tell application "Google Chrome" to activate' \
+    -e 'tell application "System Events" to keystroke "p" using command down'
+  if wait_for_chrome_print_window; then
+    return
+  fi
+
+  echo "==> Cmd-P did not expose print preview; trying File > Print..." >&2
+  osascript <<'OSA' >/dev/null 2>&1 || true
+tell application "Google Chrome" to activate
+delay 0.3
+tell application "System Events"
+  tell process "Google Chrome"
+    set frontmost to true
+    click menu item "Print…" of menu "File" of menu bar 1
+  end tell
+end tell
+OSA
+  wait_for_chrome_print_window
+}
+
 click_accessible_chrome_save() {
   osascript <<'OSA' >/dev/null 2>&1
 with timeout of 2 seconds
@@ -324,16 +345,30 @@ press_chrome_print_save() {
 
 macos_save_dialog_visible() {
   osascript <<'OSA' >/dev/null 2>&1
+on isSaveDialog(candidateElement)
+  tell application "System Events"
+    try
+      if description of candidateElement is "save" then return true
+    end try
+    try
+      if name of candidateElement contains "Save" then return true
+    end try
+  end tell
+  return false
+end isSaveDialog
+
 tell application "System Events"
   tell process "Google Chrome"
-    try
-      if exists sheet 1 of window 1 then
-        if description of sheet 1 of window 1 is "save" then return
-      end if
-    end try
-    try
-      if description of window 1 is "save" then return
-    end try
+    repeat with candidateWindow in windows
+      try
+        if my isSaveDialog(candidateWindow) then return
+      end try
+      try
+        repeat with candidateSheet in sheets of candidateWindow
+          if my isSaveDialog(candidateSheet) then return
+        end repeat
+      end try
+    end repeat
     error "macOS Save dialog is not visible"
   end tell
 end tell
@@ -355,9 +390,13 @@ go_to_folder_sheet_visible() {
   osascript <<'OSA' >/dev/null 2>&1
 tell application "System Events"
   tell process "Google Chrome"
-    try
-      if exists sheet 1 of sheet 1 of window 1 then return
-    end try
+    repeat with candidateWindow in windows
+      try
+        repeat with candidateSheet in sheets of candidateWindow
+          if exists sheet 1 of candidateSheet then return
+        end repeat
+      end try
+    end repeat
     error "Go to folder sheet is not visible"
   end tell
 end tell
@@ -402,12 +441,16 @@ end clickButtonByName
 tell application "System Events"
   tell process "Google Chrome"
     set frontmost to true
-    try
-      if exists sheet 1 of window 1 then
-        if my clickButtonByName(sheet 1 of window 1, "$escaped_name") then return
-      end if
-    end try
-    if my clickButtonByName(window 1, "$escaped_name") then return
+    repeat with candidateWindow in windows
+      try
+        repeat with candidateSheet in sheets of candidateWindow
+          if my clickButtonByName(candidateSheet, "$escaped_name") then return
+        end repeat
+      end try
+      try
+        if my clickButtonByName(candidateWindow, "$escaped_name") then return
+      end try
+    end repeat
     error "Button not found: $escaped_name"
   end tell
 end tell
@@ -601,9 +644,7 @@ save_one() {
   wait_for_chrome_page_load "$target_url" || return 1
 
   echo "==> Opening print preview"
-  osascript -e 'tell application "Google Chrome" to activate' \
-    -e 'tell application "System Events" to keystroke "p" using command down'
-  wait_for_chrome_print_window || return 1
+  open_chrome_print_preview || return 1
 
   press_chrome_print_save || return 1
   sleep 1

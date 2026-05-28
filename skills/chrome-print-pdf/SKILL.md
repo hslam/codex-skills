@@ -39,10 +39,10 @@ pdftotext -v
 1. Determine the full export scope before printing. For GitHub PR/search result pages, prefer `--auto-github-pages` when `gh` can access the repository; otherwise identify the number of result pages and export every page.
 2. Open the target URL in a new tab in the user's signed-in Google Chrome so existing browser pages are not overwritten. For multi-page exports, reuse that export tab for later pages.
 3. Wait for the page to load and confirm the title/URL if needed.
-4. Open print preview with `Cmd-P`.
+4. Open print preview with `Cmd-P`. The script falls back to Chrome's `File -> Print...` menu when `Cmd-P` does not surface a print preview window.
 5. Use Chrome print preview settings as requested. For normal GitHub lists, keep `Destination: Save as PDF`. To reduce pagination: open More settings, set Margins to None, lower Scale, use a larger Paper size, and turn off Headers and footers.
 6. Press the blue Save button. The script first tries Accessibility by label, then falls back to reading the print window bounds and clicking the lower-right Save location with several retries. It finally accepts `--save-click X,Y` as a manual override.
-7. In the macOS Save dialog, type the file name, use `Cmd-Shift-G` to jump to the destination directory, then click the dialog's Save button through Accessibility.
+7. In the macOS Save dialog, type the file name, use `Cmd-Shift-G` to jump to the destination directory, then click the dialog's Save button through Accessibility. The Save sheet may attach to Chrome's print preview window rather than `window 1`; search all Chrome windows and sheets before falling back to coordinates.
 8. If the GUI automation misses, take a screenshot before guessing and rerun with `--save-click X,Y` only as a last-mile override.
 9. For long exports or retries, prefer `--resume` so existing PDFs that pass `pdfinfo` are reused and only missing or invalid pages are printed again.
 10. Validate every saved page and the merged PDF with `pdfinfo` and `pdftotext`.
@@ -196,4 +196,4 @@ Keep the final response concise but auditable. Include:
 - Do not reuse existing PDFs when the user is teaching or requesting the generation workflow. Generate from the current Chrome page and validate the new file.
 - `--resume` is for interrupted or long exports. Do not use it when the user explicitly wants a fresh export unless they approve reusing valid existing PDFs.
 - Do not name a shell variable `path` in zsh scripts; it can shadow `PATH` and make commands like `osascript` disappear.
-- If Chrome print preview opens but the Save button click does not show the macOS save dialog, wait for the script's Accessibility and coordinate retries first. If it still fails, check whether an overwrite or save dialog is already waiting, take a screenshot, then rerun with `--save-click X,Y` using the observed Save button center.
+- If Chrome print preview opens but the Save button click does not show the macOS save dialog, wait for the script's Accessibility and coordinate retries first. If it still fails, check whether an overwrite or save dialog is already waiting on any Chrome window, take a screenshot, then rerun with `--save-click X,Y` using the observed Save button center.
