@@ -41,7 +41,7 @@ pdftotext -v
 3. Wait for the page to load and confirm the title/URL if needed.
 4. Open print preview with `Cmd-P`.
 5. Use Chrome print preview settings as requested. For normal GitHub lists, keep `Destination: Save as PDF`. To reduce pagination: open More settings, set Margins to None, lower Scale, use a larger Paper size, and turn off Headers and footers.
-6. Press the blue Save button. The script reads the print window bounds, clicks the lower-right Save location with several retries, then tries Accessibility by label, and finally accepts `--save-click X,Y` as a manual override.
+6. Press the blue Save button. The script first tries Accessibility by label, then falls back to reading the print window bounds and clicking the lower-right Save location with several retries. It finally accepts `--save-click X,Y` as a manual override.
 7. In the macOS Save dialog, type the file name, use `Cmd-Shift-G` to jump to the destination directory, then click the dialog's Save button through Accessibility.
 8. If the GUI automation misses, take a screenshot before guessing and rerun with `--save-click X,Y` only as a last-mile override.
 9. For long exports or retries, prefer `--resume` so existing PDFs that pass `pdfinfo` are reused and only missing or invalid pages are printed again.
@@ -57,7 +57,9 @@ Preferred ways to determine page count:
 - If the page is public, inspect the rendered or fetched pagination controls and use the last page number.
 - If unauthenticated `curl` returns 404 or incomplete content, treat the page as private/session-dependent and use Chrome login state or `gh`; do not rely on headless browser output or public fetches for the final scope.
 
-When exporting a GitHub list, report the result count or page range you used, such as `0 Open 63 Closed` and `pages 1-3`.
+If GitHub search reports more than 1000 results, treat the auto-inferred page range as suspicious because GitHub search pagination may be capped. Narrow the query or verify the rendered pagination before doing the final export.
+
+When exporting a GitHub list, report the result count and page range you used, plus the rendered Open/Closed count from the page text, such as `0 Open 63 Closed` and `pages 1-3`.
 
 Final responses for GitHub list exports must include the result count, exported page range, merged PDF path, merged PDF page count, and output directory.
 
@@ -140,6 +142,8 @@ Manual print-preview Save override:
 
 If only one page failed, rerun just that page with `--pages N` and the same `--name`, `--out-dir`, and subdirectory options, then rerun the full page range with `--merge --resume` to rebuild the merged PDF from valid per-page PDFs.
 
+The script prints a page-specific retry command when a per-page export fails. Prefer using that exact command, then rebuild the merged PDF with the original full page range and `--merge --resume`.
+
 Manual subdirectory:
 
 ```bash
@@ -161,13 +165,15 @@ pdftotext "$file" - | rg -m 8 'expected text|repo name|query|result count'
 
 For GitHub PR lists, verify the repository name, query text, and expected count such as `0 Open 63 Closed`. Also verify that the per-page PDFs are not all the same page by checking the saved page URLs or distinct text from each page when possible.
 
-For merged GitHub list PDFs, verify more than the page count: sample text from the first source page and the last source page, such as representative PR numbers, so the merged file is known to contain the full range.
+For merged GitHub list PDFs, verify more than the page count: sample text from the first source page and the last source page, such as representative PR numbers, so the merged file is known to contain the full range. For paginated exports, also check that each page PDF contains the expected `page=N` URL text when Chrome includes it in the printed output.
 
 When the script can identify a GitHub PR list, it prints a validation block after export:
 
 - repository and decoded query
 - expected result count when `--auto-github-pages` was used
 - matching text from every generated PDF
+- rendered Open/Closed count text such as `4 Open 179 Closed` when present
+- expected `page=N` URL text for each per-page PDF when present
 - a per-page distinctness sample using the first few PR numbers from each page
 
 Merged PDFs created by `pdfunite` may not preserve `Title`, `Creator`, or `CreationDate`. That is acceptable if `pdfinfo` reports the expected page count and `pdftotext` verifies the repository, query, and result count.
@@ -186,7 +192,8 @@ Keep the final response concise but auditable. Include:
 ## Notes
 
 - Chrome UI cannot make a truly infinite one-page PDF. It can only reduce pagination by paper size, margins, and scale. For a real single long page, create a local HTML or use DevTools/Playwright with custom page dimensions.
+- The script creates a Chrome window if none exists, waits for `document.readyState` before printing, and waits for the print preview window instead of relying only on fixed sleeps.
 - Do not reuse existing PDFs when the user is teaching or requesting the generation workflow. Generate from the current Chrome page and validate the new file.
 - `--resume` is for interrupted or long exports. Do not use it when the user explicitly wants a fresh export unless they approve reusing valid existing PDFs.
 - Do not name a shell variable `path` in zsh scripts; it can shadow `PATH` and make commands like `osascript` disappear.
-- If Chrome print preview opens but the Save button click does not show the macOS save dialog, wait for the script retries first; clicking the Save location multiple times is acceptable. If it still fails, check whether an overwrite or save dialog is already waiting, take a screenshot, then rerun with `--save-click X,Y` using the observed Save button center.
+- If Chrome print preview opens but the Save button click does not show the macOS save dialog, wait for the script's Accessibility and coordinate retries first. If it still fails, check whether an overwrite or save dialog is already waiting, take a screenshot, then rerun with `--save-click X,Y` using the observed Save button center.

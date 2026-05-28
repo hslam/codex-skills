@@ -49,6 +49,8 @@ if [[ -z "$url" || -z "$out_dir" || -z "$name" ]]; then
   exit 2
 fi
 
+root_out_dir="$out_dir"
+
 command -v cliclick >/dev/null
 command -v osascript >/dev/null
 command -v pdfinfo >/dev/null
@@ -133,6 +135,9 @@ infer_github_pages() {
   local page_count=$(( (github_result_count + 24) / 25 ))
   if [[ "$page_count" -lt 1 ]]; then
     page_count=1
+  fi
+  if [[ "$github_result_count" -gt 1000 ]]; then
+    echo "==> Warning: GitHub search returned more than 1000 results; GitHub search pagination may be capped. Narrow the query or verify rendered pagination before relying on the full export." >&2
   fi
   pages="1-$page_count"
   echo "==> Inferred GitHub PR result count: $github_result_count"
@@ -225,17 +230,53 @@ end tell
 OSA
 }
 
+chrome_print_window_visible() {
+  osascript <<'OSA' >/dev/null 2>&1
+tell application "Google Chrome" to activate
+tell application "System Events"
+  tell process "Google Chrome"
+    repeat with candidateWindow in windows
+      try
+        set windowName to name of candidateWindow as text
+      on error
+        set windowName to ""
+      end try
+      if windowName is "Print" or windowName contains "Print" then return
+    end repeat
+    error "Chrome print window is not visible"
+  end tell
+end tell
+OSA
+}
+
 click_accessible_chrome_save() {
   osascript <<'OSA' >/dev/null 2>&1
 with timeout of 2 seconds
   tell application "System Events"
     tell process "Google Chrome"
       set frontmost to true
+      repeat with candidateWindow in windows
+        try
+          click (first button of candidateWindow whose name is "Save")
+          return
+        end try
+      end repeat
       click (first button of window 1 whose name is "Save")
     end tell
   end tell
 end timeout
 OSA
+}
+
+wait_for_chrome_print_window() {
+  for _ in {1..40}; do
+    if chrome_print_window_visible; then
+      return
+    fi
+    sleep 0.25
+  done
+  echo "Timed out waiting for Chrome print preview window" >&2
+  return 1
 }
 
 press_chrome_print_save() {
@@ -246,6 +287,16 @@ press_chrome_print_save() {
     cliclick m:"$click_point" w:300 dd:. w:200 du:.
     return
   fi
+
+  for attempt in 1 2 3; do
+    echo "==> Pressing Chrome Save with Accessibility (attempt $attempt)"
+    if click_accessible_chrome_save; then
+      sleep 1.5
+      if macos_save_dialog_visible; then
+        return
+      fi
+    fi
+  done
 
   local x=""
   local y=""
@@ -264,14 +315,6 @@ press_chrome_print_save() {
       return
     fi
   done
-
-  if click_accessible_chrome_save; then
-    echo "==> Pressed Chrome Save with Accessibility"
-    sleep 1.5
-    if macos_save_dialog_visible; then
-      return
-    fi
-  fi
 
   echo "Could not locate Chrome print Save button." >&2
   return 1
@@ -406,6 +449,58 @@ OSA
   click_macos_dialog_button "Replace" || true
 }
 
+ensure_chrome_window() {
+  osascript <<'OSA'
+tell application "Google Chrome"
+  activate
+  if (count of windows) is 0 then make new window
+end tell
+OSA
+}
+
+wait_for_chrome_page_load() {
+  local expected_url="$1"
+  local escaped_url=""
+  escaped_url="$(applescript_escape "$expected_url")"
+
+  for _ in {1..80}; do
+    if osascript <<OSA >/dev/null 2>&1
+tell application "Google Chrome"
+  if (count of windows) is 0 then error "No Chrome window"
+  set tabUrl to URL of active tab of front window as text
+  if tabUrl does not contain "$escaped_url" and "$escaped_url" does not contain tabUrl then error "URL has not settled"
+  set readyState to execute active tab of front window javascript "document.readyState"
+  if readyState is not "complete" then error "Page is not complete"
+end tell
+OSA
+    then
+      sleep 0.8
+      return
+    fi
+    sleep 0.25
+  done
+
+  echo "Timed out waiting for Chrome page load: $expected_url" >&2
+  return 1
+}
+
+print_rerun_hint() {
+  local page="$1"
+  if [[ "$page" != "single" ]]; then
+    echo "==> To retry this page after fixing the UI state:" >&2
+    printf '    %q --url %q --out-dir %q --name %q --pages %q' "$0" "$url" "$root_out_dir" "$name" "$page" >&2
+    if [[ "$repo_subdir" -eq 1 ]]; then
+      printf ' --repo-subdir' >&2
+    elif [[ -n "$subdir" ]]; then
+      printf ' --subdir %q' "$subdir" >&2
+    fi
+    printf ' --resume\n' >&2
+    if [[ -n "$pages" ]]; then
+      echo "==> Then rebuild the merged PDF with the original full page range plus --merge --resume." >&2
+    fi
+  fi
+}
+
 save_one() {
   local page="$1"
   local target_url="$url"
@@ -432,20 +527,23 @@ save_one() {
   rm -f "$outfile"
 
   echo "==> Opening $target_url"
+  ensure_chrome_window
+  local escaped_target_url=""
+  escaped_target_url="$(applescript_escape "$target_url")"
   osascript -e 'tell application "Google Chrome" to activate' \
-    -e "tell application \"Google Chrome\" to set URL of active tab of front window to \"$target_url\""
-  sleep 4
+    -e "tell application \"Google Chrome\" to set URL of active tab of front window to \"$escaped_target_url\""
+  wait_for_chrome_page_load "$target_url" || return 1
 
   echo "==> Opening print preview"
   osascript -e 'tell application "Google Chrome" to activate' \
     -e 'tell application "System Events" to keystroke "p" using command down'
-  sleep 5
+  wait_for_chrome_print_window || return 1
 
-  press_chrome_print_save
+  press_chrome_print_save || return 1
   sleep 1
 
   echo "==> Saving as $outfile"
-  save_macos_pdf_dialog "$file" "$out_dir"
+  save_macos_pdf_dialog "$file" "$out_dir" || return 1
 
   for _ in {1..30}; do
     [[ -f "$outfile" ]] && break
@@ -455,7 +553,7 @@ save_one() {
   if [[ ! -f "$outfile" ]]; then
     screencapture -x "/tmp/chrome-print-pdf-missing-${page}.png" || true
     echo "Missing expected PDF: $outfile" >&2
-    exit 1
+    return 1
   fi
 
   ls -lh "$outfile"
@@ -463,13 +561,18 @@ save_one() {
 }
 
 generated=()
+generated_pages=()
 while IFS= read -r page; do
-  save_one "$page"
+  if ! save_one "$page"; then
+    print_rerun_hint "$page"
+    exit 1
+  fi
   if [[ "$page" == "single" ]]; then
     [[ "$name" == *.pdf ]] && generated+=("$out_dir/$name") || generated+=("$out_dir/$name.pdf")
   else
     [[ "$name" == *.pdf ]] && generated+=("$out_dir/${name%.pdf}-page-$page.pdf") || generated+=("$out_dir/$name-page-$page.pdf")
   fi
+  generated_pages+=("$page")
 done < <(expand_pages "$pages")
 
 if [[ "$merge" -eq 1 ]]; then
@@ -495,11 +598,18 @@ validate_github_pr_exports() {
 
   local f=""
   local sample=""
+  local expected_page=""
+  local i=0
   for f in "${generated[@]}"; do
     echo "-- $(basename "$f")"
     pdftotext "$f" - | grep -F -m 3 "$github_repo_full_name" || true
     pdftotext "$f" - | grep -F -m 3 "$github_query" || true
+    if [[ "${#generated[@]}" -gt 1 ]]; then
+      expected_page="${generated_pages[$i]}"
+      pdftotext "$f" - | grep -F -m 1 "page=$expected_page" || true
+    fi
     pdftotext "$f" - | grep -E -m 10 '[0-9]+ Open [0-9]+ Closed|#[0-9]+ by ' || true
+    i=$((i + 1))
   done
 
   if [[ "${#generated[@]}" -gt 1 ]]; then
