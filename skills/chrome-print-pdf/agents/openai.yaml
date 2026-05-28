@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chrome Print PDF"
+  short_description: "Export logged-in Chrome pages to PDF."
+  default_prompt: "Export the current logged-in Chrome page to PDF using Chrome print preview."
