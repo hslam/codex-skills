@@ -1,4 +1,4 @@
 interface:
   display_name: "Git Signoff"
-  short_description: "Keep Git commits signed off."
-  default_prompt: "Use $git-signoff to make or rewrite commits with the required Signed-off-by trailer."
+  short_description: "Keep outgoing Git commits signed off."
+  default_prompt: "Use $git-signoff to make, rewrite, or push commits with the required Signed-off-by trailer."

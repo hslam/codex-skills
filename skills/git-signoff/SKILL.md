@@ -1,6 +1,6 @@
 ---
 name: git-signoff
-description: "Use when creating, amending, rebasing, cherry-picking, squashing, merging, or otherwise rewriting Git commits in repositories that require Signed-off-by trailers. Ensures every affected commit carries the required trailer and verifies the result before finishing."
+description: "Use when creating, amending, rebasing, cherry-picking, squashing, merging, pushing, or otherwise rewriting Git commits in repositories that require Signed-off-by trailers. Ensures every affected or outgoing commit carries the required trailer and verifies the result before finishing."
 ---
 
 # Git Signoff
@@ -19,6 +19,8 @@ signoff_trailer="Signed-off-by: $signoff_identity"
 Do not assume a personal name or email. Always derive the identity from the repository's active Git configuration.
 
 This applies to ordinary commits and to history-changing operations such as amend, rebase, cherry-pick, squash/fixup, merge commits, revert commits, and conflict-resolution commits.
+
+Before pushing a branch, audit every outgoing commit in the upstream range. Do not rely only on commits created during the current turn; a local branch may already be ahead with older unsigned commits.
 
 ## Workflow
 
@@ -71,6 +73,25 @@ done
 
 The range check prints commits missing the required trailer. No output means the range is signed off.
 
+4. Before any `git push`, always inspect the branch state and validate the full outgoing range when an upstream exists:
+
+```bash
+git status --short --branch
+upstream="$(git rev-parse --abbrev-ref --symbolic-full-name @{u})"
+signoff_identity="$(git var GIT_COMMITTER_IDENT | sed -E 's/ [0-9]+ [-+][0-9]+$//')"
+signoff_trailer="Signed-off-by: $signoff_identity"
+git rev-list --reverse "$upstream"..HEAD |
+while read -r commit; do
+  git log -1 --format=%B "$commit" |
+    rg -Fxq "$signoff_trailer" ||
+    git log -1 --format='%H %s' "$commit"
+done
+```
+
+The pre-push check must print no commits before pushing. If it prints any commit, repair the outgoing range first, then re-run the check. If the branch has no upstream, choose an explicit remote/base only when it is obvious from the user request; otherwise ask before validating or pushing.
+
+When a history rewrite was needed to add missing trailers to commits already on the remote, push with `--force-with-lease`, not plain `--force`.
+
 ## Repair
 
 For only `HEAD`, add the trailer without changing the patch:
@@ -93,6 +114,8 @@ GIT_SEQUENCE_EDITOR=: git rebase -i --exec 'tmp_msg="$(mktemp)" && signoff_ident
 ```
 
 After repair, rerun the range validation.
+
+If the repair changed commits that were already pushed, rerun the pre-push outgoing range check against the upstream. The branch will usually show both ahead and behind until the rewritten history is pushed with `--force-with-lease`.
 
 ## Notes
 
