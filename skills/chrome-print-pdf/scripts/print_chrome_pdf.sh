@@ -171,7 +171,7 @@ press_chrome_print_save() {
   local h=""
   local bounds=""
 
-  for attempt in 1 2 3; do
+  for attempt in 1 2 3 4 5; do
     bounds="$(front_chrome_print_window_bounds)"
     IFS=, read -r x y w h <<< "$bounds"
     click_point="$((x + w - 53)),$((y + h - 42))"

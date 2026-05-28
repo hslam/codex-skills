@@ -34,14 +34,27 @@ pdftotext -v
 
 ## Workflow
 
-1. Open the target URL in the user's signed-in Google Chrome.
-2. Wait for the page to load and confirm the title/URL if needed.
-3. Open print preview with `Cmd-P`.
-4. Use Chrome print preview settings as requested. For normal GitHub lists, keep `Destination: Save as PDF`. To reduce pagination: open More settings, set Margins to None, lower Scale, use a larger Paper size, and turn off Headers and footers.
-5. Press the blue Save button. The script reads the print window bounds, clicks the lower-right Save location with retries, then tries Accessibility by label, and finally accepts `--save-click X,Y` as a manual override.
-6. In the macOS Save dialog, type the file name, use `Cmd-Shift-G` to jump to the destination directory, then click the dialog's Save button through Accessibility.
-7. If the GUI automation misses, take a screenshot before guessing and rerun with `--save-click X,Y` only as a last-mile override.
-8. Validate the output with `pdfinfo` and `pdftotext`.
+1. Determine the full export scope before printing. For GitHub PR/search result pages, identify the number of result pages and export every page.
+2. Open the target URL in the user's signed-in Google Chrome.
+3. Wait for the page to load and confirm the title/URL if needed.
+4. Open print preview with `Cmd-P`.
+5. Use Chrome print preview settings as requested. For normal GitHub lists, keep `Destination: Save as PDF`. To reduce pagination: open More settings, set Margins to None, lower Scale, use a larger Paper size, and turn off Headers and footers.
+6. Press the blue Save button. The script reads the print window bounds, clicks the lower-right Save location with several retries, then tries Accessibility by label, and finally accepts `--save-click X,Y` as a manual override.
+7. In the macOS Save dialog, type the file name, use `Cmd-Shift-G` to jump to the destination directory, then click the dialog's Save button through Accessibility.
+8. If the GUI automation misses, take a screenshot before guessing and rerun with `--save-click X,Y` only as a last-mile override.
+9. Validate every saved page and the merged PDF with `pdfinfo` and `pdftotext`.
+
+## GitHub Pagination
+
+For GitHub PR/search pagination, do not assume the user-provided `page=1` is the only page.
+
+Preferred ways to determine page count:
+
+- If `gh` can access the repository, use the GitHub API or search results to count matching items. GitHub PR lists normally show 25 items per page, so `ceil(count / 25)` gives the browser page range.
+- If the page is public, inspect the rendered or fetched pagination controls and use the last page number.
+- If unauthenticated `curl` returns 404 or incomplete content, treat the page as private/session-dependent and use Chrome login state or `gh`; do not rely on headless browser output or public fetches for the final scope.
+
+When exporting a GitHub list, report the result count or page range you used, such as `0 Open 63 Closed` and `pages 1-3`.
 
 ## Output Layout
 
@@ -80,6 +93,15 @@ GitHub search pagination:
   --repo-subdir
 ```
 
+Find the page range first when `gh` is available:
+
+```bash
+gh api 'repos/owner/repo/pulls?state=closed&per_page=100' --paginate \
+  --jq '[.[] | select(.user.login=="user")] | length'
+```
+
+Then export `1-ceil(count/25)` with `--pages`.
+
 Manual print-preview Save override:
 
 ```bash
@@ -108,14 +130,17 @@ Manual subdirectory:
 After saving, always report:
 
 ```bash
-pdfinfo "$file" | rg '^(Title|Pages|Creator|Producer|CreationDate)'
-pdftotext "$file" - | rg -m 5 'expected text|repo name|query'
+pdfinfo "$file" | rg '^(Title|Pages|Creator|Producer|CreationDate)' || true
+pdftotext "$file" - | rg -m 8 'expected text|repo name|query|result count'
 ```
 
-For GitHub PR lists, verify the repository name, query text, and expected count such as `0 Open 63 Closed`.
+For GitHub PR lists, verify the repository name, query text, and expected count such as `0 Open 63 Closed`. Also verify that the per-page PDFs are not all the same page by checking the saved page URLs or distinct text from each page when possible.
+
+Merged PDFs created by `pdfunite` may not preserve `Title`, `Creator`, or `CreationDate`. That is acceptable if `pdfinfo` reports the expected page count and `pdftotext` verifies the repository, query, and result count.
 
 ## Notes
 
 - Chrome UI cannot make a truly infinite one-page PDF. It can only reduce pagination by paper size, margins, and scale. For a real single long page, create a local HTML or use DevTools/Playwright with custom page dimensions.
 - Do not reuse existing PDFs when the user is teaching or requesting the generation workflow. Generate from the current Chrome page and validate the new file.
 - Do not name a shell variable `path` in zsh scripts; it can shadow `PATH` and make commands like `osascript` disappear.
+- If Chrome print preview opens but the Save button click does not show the macOS save dialog, wait for the script retries first; clicking the Save location multiple times is acceptable. If it still fails, take a screenshot, then rerun with `--save-click X,Y` using the observed Save button center.
