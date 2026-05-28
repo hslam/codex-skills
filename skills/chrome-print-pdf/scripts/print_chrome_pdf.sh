@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M | --auto-github-pages | --auto-github-next-pages] [--merge] [--repo-subdir | --subdir NAME] [--resume] [--save-click X,Y] [--page-settle-seconds N] [--print-retries N]
+  print_chrome_pdf.sh --url URL --out-dir DIR --name NAME [--pages N-M | --auto-github-pages | --auto-github-next-pages] [--merge] [--repo-subdir | --subdir NAME] [--resume] [--save-click X,Y] [--page-settle-seconds N] [--print-retries N] [--dry-run]
 
 Examples:
   print_chrome_pdf.sh --url "https://github.com/owner/repo/pulls?q=is%3Apr" --out-dir "/path/to/output" --name repo-prs.pdf
@@ -23,6 +23,7 @@ repo_subdir=0
 subdir=""
 save_click=""
 resume=0
+dry_run=0
 auto_github_pages=0
 auto_github_next_pages=0
 auto_next_page_limit=200
@@ -51,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --subdir) subdir="$2"; shift 2 ;;
     --resume) resume=1; shift ;;
     --save-click) save_click="$2"; shift 2 ;;
+    --dry-run|--plan) dry_run=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
   esac
@@ -63,10 +65,12 @@ fi
 
 root_out_dir="$out_dir"
 
-command -v cliclick >/dev/null
-command -v osascript >/dev/null
-command -v pdfinfo >/dev/null
-command -v pdftotext >/dev/null
+if [[ "$dry_run" -eq 0 ]]; then
+  command -v cliclick >/dev/null
+  command -v osascript >/dev/null
+  command -v pdfinfo >/dev/null
+  command -v pdftotext >/dev/null
+fi
 
 if [[ -n "$save_click" && ! "$save_click" =~ ^-?[0-9]+,-?[0-9]+$ ]]; then
   echo "--save-click must be X,Y." >&2
@@ -200,8 +204,6 @@ if [[ -n "$subdir" ]]; then
   out_dir="$out_dir/$subdir"
 fi
 
-mkdir -p "$out_dir"
-
 append_page_param() {
   local base="$1"
   local page="$2"
@@ -228,6 +230,60 @@ expand_pages() {
     exit 2
   fi
 }
+
+print_dry_run_plan() {
+  local page=""
+  local target_url="$url"
+  local file="$name"
+  local merged="$out_dir/${name%.pdf}-all-pages.pdf"
+
+  echo "Mode: dry-run"
+  echo "Output directory: $out_dir"
+  echo "Name: $name"
+  echo "URL: $url"
+  if [[ -n "$pages" ]]; then
+    echo "Page range: $pages"
+  elif [[ "$auto_github_next_pages" -eq 1 ]]; then
+    echo "Page range: rendered Next pages resolved during export"
+  else
+    echo "Page range: single"
+  fi
+  echo "Merge: $merge"
+  if [[ "$merge" -eq 1 ]]; then
+    echo "Merged PDF: $merged"
+  fi
+  echo "Page settle seconds: $page_settle_seconds"
+  echo "Print retries: $print_retries"
+
+  if [[ "$auto_github_next_pages" -eq 1 && -z "$pages" ]]; then
+    echo "Per-page PDFs: rendered Next URLs are collected in Chrome during export"
+    return
+  fi
+
+  echo "Per-page PDFs:"
+  while IFS= read -r page; do
+    target_url="$url"
+    file="$name"
+    if [[ "$page" != "single" ]]; then
+      target_url="$(append_page_param "$url" "$page")"
+      if [[ "$name" == *.pdf ]]; then
+        file="${name%.pdf}-page-$page.pdf"
+      else
+        file="$name-page-$page.pdf"
+      fi
+    elif [[ "$file" != *.pdf ]]; then
+      file="$file.pdf"
+    fi
+    printf '  page=%s url=%s file=%s\n' "$page" "$target_url" "$out_dir/$file"
+  done < <(expand_pages "$pages")
+}
+
+if [[ "$dry_run" -eq 1 ]]; then
+  print_dry_run_plan
+  exit 0
+fi
+
+mkdir -p "$out_dir"
 
 applescript_escape() {
   sed 's/\\/\\\\/g; s/"/\\"/g' <<< "$1"

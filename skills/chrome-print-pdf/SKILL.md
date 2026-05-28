@@ -36,7 +36,7 @@ pdftotext -v
 
 ## Workflow
 
-1. Determine the full export scope before printing. For GitHub commits pages, prefer `export_github_commits_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, branch, rendered Next pages, merge output, window count, SHA validation, and writes a `*-audit.txt` file next to the merged PDF. For closed PR pages by author from a repository URL, prefer `export_github_prs_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, builds the `pulls?page=1&q=is%3Apr+is%3Aclosed+author%3AUSER` URL, exports all inferred pages, merges, and writes a `*-audit.txt` file. For other GitHub PR/search result pages, prefer `print_chrome_pdf.sh --auto-github-pages` when `gh` can access the repository. Otherwise identify every page URL and export every page.
+1. Determine the full export scope before printing. For GitHub commits pages, prefer `export_github_commits_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, branch, rendered Next pages, merge output, window count, SHA validation, and writes `*-audit.txt` plus `*-audit.json` next to the merged PDF. For closed PR pages by author from a repository URL, prefer `export_github_prs_pdf.sh --repo OWNER/REPO --out-dir DIR`; it resolves author, builds the `pulls?page=1&q=is%3Apr+is%3Aclosed+author%3AUSER` URL, exports all inferred pages, merges, and writes text/JSON audits. For other GitHub PR/search result pages, prefer `print_chrome_pdf.sh --auto-github-pages` when `gh` can access the repository. Otherwise identify every page URL and export every page.
 2. Open the target URL in a new tab of the existing signed-in Chrome window so existing browser pages are not overwritten. Only create a new Chrome window when Chrome has no open windows. For multi-page exports, reuse that export tab for later pages.
 3. Wait for the page to load and confirm the title/URL if needed. The print script waits for GitHub PR counts or commit SHAs before printing, then pauses for `--page-settle-seconds` seconds, defaulting to `CHROME_PRINT_PAGE_SETTLE_SECONDS` or `0.8`.
 4. Open print preview with `Cmd-P`. The script falls back to Chrome's `File -> Print...` menu when `Cmd-P` does not surface a print preview window.
@@ -118,7 +118,7 @@ GitHub closed PRs by author from a repository URL:
 
 Use `--author USER`, `--state open|closed|all`, or `--name NAME` only when overriding the current GitHub login, default `closed` PR state, or output basename. Use `--print-url` when you only need to verify the generated PR URL and page range.
 
-Use `--page-settle-seconds N` when a GitHub page renders slowly after `document.readyState=complete`. Use `--print-retries N` to retry each failed page before falling back to the printed rerun command.
+Use `--dry-run` to preview target URLs, page files, merged PDF, and audit paths without opening Chrome. Use `--page-settle-seconds N` when a GitHub page renders slowly after `document.readyState=complete`. Use `--print-retries N` to retry each failed page before falling back to the printed rerun command.
 
 When the `--repo` value is already a GitHub `pulls` URL with a `q=` parameter, `export_github_prs_pdf.sh` preserves that query unless explicit `--author` or `--state` flags override it.
 
@@ -132,7 +132,7 @@ GitHub commits-by-author export:
 
 Use `--author USER`, `--branch BRANCH`, or `--name NAME` only when overriding the current GitHub login, repository default branch, or output basename. Use `--resume` after an interrupted export to reuse valid per-page PDFs.
 
-Use `--page-settle-seconds N` and `--print-retries N` for slow-rendering commit pages or flaky print preview Save clicks; both options are passed through to `print_chrome_pdf.sh`.
+Use `--dry-run` to preview the target URL, estimated page files, merged PDF, and audit paths without opening Chrome. Use `--page-settle-seconds N` and `--print-retries N` for slow-rendering commit pages or flaky print preview Save clicks; both options are passed through to `print_chrome_pdf.sh`.
 
 When the `--repo` value is a GitHub commits or tree URL, `export_github_commits_pdf.sh` preserves `author=` from the URL and the `/commits/<branch>` or `/tree/<branch>` path unless explicit `--author` or `--branch` flags override them. Branch-specific inputs default to names like `repo-branch-commits-user` so they do not overwrite default-branch exports.
 

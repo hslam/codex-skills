@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  export_github_commits_pdf.sh --repo OWNER/REPO|GITHUB_URL --out-dir DIR [--author USER] [--branch BRANCH] [--name NAME] [--resume] [--save-click X,Y] [--page-settle-seconds N] [--print-retries N]
+  export_github_commits_pdf.sh --repo OWNER/REPO|GITHUB_URL --out-dir DIR [--author USER] [--branch BRANCH] [--name NAME] [--resume] [--save-click X,Y] [--page-settle-seconds N] [--print-retries N] [--dry-run]
 
 Examples:
   export_github_commits_pdf.sh --repo tidbcloud/ffs --out-dir /tmp/exports
@@ -23,6 +23,7 @@ resume=0
 save_click=""
 page_settle_seconds=""
 print_retries=""
+dry_run=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,6 +36,7 @@ while [[ $# -gt 0 ]]; do
     --save-click) save_click="$2"; shift 2 ;;
     --page-settle-seconds) page_settle_seconds="$2"; shift 2 ;;
     --print-retries) print_retries="$2"; shift 2 ;;
+    --dry-run|--plan) dry_run=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
   esac
@@ -46,10 +48,13 @@ if [[ -z "$repo_input" || -z "$out_dir" ]]; then
 fi
 
 command -v gh >/dev/null
-command -v pdfinfo >/dev/null
-command -v pdftotext >/dev/null
-command -v osascript >/dev/null
-command -v rg >/dev/null
+if [[ "$dry_run" -eq 0 ]]; then
+  command -v python3 >/dev/null
+  command -v pdfinfo >/dev/null
+  command -v pdftotext >/dev/null
+  command -v osascript >/dev/null
+  command -v rg >/dev/null
+fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 print_script="$script_dir/print_chrome_pdf.sh"
@@ -175,6 +180,34 @@ target_url="https://github.com/$repo_full_name/commits/$branch/?author=$author"
 repo_out_dir="$out_dir/$repo_name"
 merged_pdf="$repo_out_dir/${name%.pdf}-all-pages.pdf"
 audit_file="$repo_out_dir/${name%.pdf}-audit.txt"
+audit_json_file="$repo_out_dir/${name%.pdf}-audit.json"
+
+if [[ "$dry_run" -eq 1 ]]; then
+  estimated_page_count=$(( (commit_count + 34) / 35 ))
+  if [[ "$estimated_page_count" -lt 1 ]]; then
+    estimated_page_count=1
+  fi
+
+  echo "Mode: dry-run"
+  echo "Repository: $repo_full_name"
+  echo "Branch: $branch"
+  echo "Branch source: $branch_source"
+  echo "Author: $author"
+  echo "Author source: $author_source"
+  echo "Commit count: $commit_count"
+  echo "Target URL: $target_url"
+  echo "Rendered Next pages: resolved during export"
+  echo "Estimated page range: 1-$estimated_page_count"
+  echo "Output directory: $repo_out_dir"
+  echo "Merged PDF: $merged_pdf"
+  echo "Audit file: $audit_file"
+  echo "Audit JSON: $audit_json_file"
+  echo "Estimated per-page PDFs:"
+  for page in $(seq 1 "$estimated_page_count"); do
+    printf '  page=%s file=%s\n' "$page" "$repo_out_dir/${name%.pdf}-page-$page.pdf"
+  done
+  exit 0
+fi
 
 if [[ "$resume" -eq 0 ]]; then
   mkdir -p "$repo_out_dir"
@@ -291,3 +324,60 @@ fi
 } > "$audit_file"
 
 echo "Audit file: $audit_file"
+
+JSON_FILE="$audit_json_file" \
+REPO_FULL_NAME="$repo_full_name" \
+BRANCH="$branch" \
+BRANCH_SOURCE="$branch_source" \
+AUTHOR="$author" \
+AUTHOR_SOURCE="$author_source" \
+COMMIT_COUNT="$commit_count" \
+TARGET_URL="$target_url" \
+OUTPUT_DIRECTORY="$repo_out_dir" \
+MERGED_PDF="$merged_pdf" \
+MERGED_PDF_EXISTS="$([[ -f "$merged_pdf" ]] && echo true || echo false)" \
+PER_PAGE_PDF_COUNT="$per_page_pdf_count" \
+CHROME_WINDOWS_BEFORE="$before_windows" \
+CHROME_WINDOWS_AFTER="$after_windows" \
+MISSING_SHA_COUNT="$missing_sha_count" \
+MISSING_SHAS="$missing" \
+PDF_METADATA="$pdf_metadata" \
+PER_PAGE_PDFS="$per_page_pdf_list" \
+python3 <<'PY'
+import json
+import os
+
+def lines(name):
+    return [line for line in os.environ.get(name, "").splitlines() if line]
+
+def as_int(name):
+    value = os.environ.get(name, "")
+    return int(value) if value.isdigit() else value
+
+data = {
+    "type": "github_commits_export",
+    "repository": os.environ["REPO_FULL_NAME"],
+    "branch": os.environ["BRANCH"],
+    "branch_source": os.environ["BRANCH_SOURCE"],
+    "author": os.environ["AUTHOR"],
+    "author_source": os.environ["AUTHOR_SOURCE"],
+    "commit_count": as_int("COMMIT_COUNT"),
+    "target_url": os.environ["TARGET_URL"],
+    "output_directory": os.environ["OUTPUT_DIRECTORY"],
+    "merged_pdf": os.environ["MERGED_PDF"],
+    "merged_pdf_exists": os.environ["MERGED_PDF_EXISTS"] == "true",
+    "per_page_pdf_count": as_int("PER_PAGE_PDF_COUNT"),
+    "per_page_pdfs": lines("PER_PAGE_PDFS"),
+    "chrome_windows_before": as_int("CHROME_WINDOWS_BEFORE"),
+    "chrome_windows_after": as_int("CHROME_WINDOWS_AFTER"),
+    "missing_sha_count": as_int("MISSING_SHA_COUNT"),
+    "missing_shas": lines("MISSING_SHAS"),
+    "pdf_metadata": os.environ.get("PDF_METADATA", ""),
+}
+
+with open(os.environ["JSON_FILE"], "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2, sort_keys=True)
+    f.write("\n")
+PY
+
+echo "Audit JSON: $audit_json_file"
